@@ -75,6 +75,105 @@ class ImageGenerator:
 
         return matched
 
+class SaveDialog(tk.Toplevel):
+    def __init__(self, parent_gui):
+        # Initialize with the root window as the parent
+        super().__init__(parent_gui.root)
+
+        self.title("Save Images")
+        self.parent_gui = parent_gui
+
+        self.transient(parent_gui.root)
+        self.grab_set()
+
+        self.selected_images = {}
+        self.filename_var = tk.StringVar()
+
+        self.available_images = {
+            'current_image': parent_gui.current_image,
+            'generated_image': parent_gui.generated_image,
+            'abel_transformed': parent_gui.abel_transformed,
+            'noise_added': parent_gui.noise_added
+        }
+
+        peaks = parent_gui.generator.peaks
+        image_size = parent_gui.generator.size
+
+        peak_parts = []
+        for i, (radius, intensity, beta2, width) in enumerate(peaks, 1):
+            peak_parts.append(f"p{i}_r{radius:.0f}_i{intensity:.0f}_b{beta2:.1f}_w{width:.0f}")
+
+        if peak_parts:
+            default_name = f"{'_'.join(peak_parts)}_size{image_size}"
+        else:
+            default_name = f"no_peaks_size{image_size}"
+
+        self.filename_var.set(default_name)
+
+        self.create_widgets()
+
+        self.geometry("+%d+%d" % (parent_gui.root.winfo_rootx() + 50,
+                                  parent_gui.root.winfo_rooty() + 50))
+
+        self.result = None
+
+    def create_widgets(self):
+        main_frame = ttk.Frame(self, padding="10")
+        main_frame.grid(row=0, column=0, sticky="nsew")
+
+        ttk.Label(main_frame, text="Select images to save:").grid(row=0, column=0, columnspan=2, sticky="w",
+                                                                  pady=(0, 10))
+
+        self.checkboxes = {}
+        row = 1
+        descriptions = {
+            'current_image': "The exact image shown on the right",
+            'generated_image': "Clean, inverse abel-esque image with added peaks",
+            'abel_transformed': "Clean, forward abeled image from added peaks",
+            'noise_added': "Noisy, forward abeled image from added peaks"
+        }
+
+        for image_name, img in self.available_images.items():
+            if img is not None:
+                var = tk.BooleanVar()
+                self.checkboxes[image_name] = var
+                cb = ttk.Checkbutton(main_frame, variable=var, text=image_name)
+                cb.grid(row=row, column=0, sticky="w")
+                ttk.Label(main_frame, text=f"({descriptions[image_name]})").grid(row=row, column=1, sticky="w",
+                                                                               padx=(10, 0))
+                row += 1
+
+        ttk.Label(main_frame, text="Base filename:").grid(row=row, column=0, sticky="w", pady=(20, 0))
+        ttk.Entry(main_frame, textvariable=self.filename_var, width=40).grid(row=row + 1, column=0, columnspan=2,
+                                                                             sticky="ew")
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=row + 2, column=0, columnspan=2, pady=(20, 0))
+        ttk.Button(button_frame, text="Save", command=self.save).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=self.cancel).pack(side=tk.LEFT, padx=5)
+
+    def save(self):
+        selected = {name: var.get() for name, var in self.checkboxes.items()}
+        base_filename = self.filename_var.get()
+
+        # Create a dictionary of filenames for each selected image
+        self.result = {}
+        for image_name, is_selected in selected.items():
+            if is_selected:
+                if image_name == 'generated_image':
+                    filename = f"{base_filename}.dat"
+                elif image_name == 'abel_transformed':
+                    filename = f"{base_filename}_f_abel.dat"
+                elif image_name == 'noise_added':
+                    filename = f"{base_filename}_f_abel_noise.dat"
+                else:  # current_image
+                    filename = f"{base_filename}_current.dat"
+                self.result[image_name] = filename
+
+        self.destroy()
+
+    def cancel(self):
+        self.result = None
+        self.destroy()
 
 class ImageGeneratorGUI:
     def __init__(self, root):
@@ -91,7 +190,9 @@ class ImageGeneratorGUI:
         # Initialize image generator
         self.generator = ImageGenerator(n=1000)
         self.current_image = None
+        self.generated_image = None
         self.abel_transformed = None
+        self.noise_added = None
 
         # Create main frames
         self.create_control_frame()
@@ -279,7 +380,9 @@ help - Show this help
     def clear_peaks(self):
         self.generator.clear_peaks()
         self.current_image = None
+        self.generated_image = None
         self.abel_transformed = None
+        self.noise_added = None
         self.update_plot()
         self.update_peak_list()
 
@@ -296,20 +399,23 @@ help - Show this help
             tk.messagebox.showwarning("Warning", "No peaks added yet")
             return
 
-        self.current_image = self.generator.generate_image()
+        self.generated_image = self.generator.generate_image()
+        self.current_image = self.generated_image
         self.abel_transformed = None
+        self.noise_added = None
         self.update_plot()
 
     def abel_transform(self):
-        if self.current_image is None:
+        if self.generated_image is None:
             tk.messagebox.showwarning("Warning", "Generate an image first")
             return
 
-        self.abel_transformed = abel.Transform(self.current_image,
+        self.abel_transformed = abel.Transform(self.generated_image,
                                                direction='forward',
                                                method='direct',
                                                verbose=True).transform
-        self.update_plot(self.abel_transformed)
+        self.current_image = self.abel_transformed
+        self.update_plot()
 
     def add_noise(self):
         if self.abel_transformed is None:
@@ -318,7 +424,8 @@ help - Show this help
 
         try:
             noise_level = float(self.noise_var.get())
-            self.current_image = self.generator.add_noise(self.abel_transformed, noise_level)
+            self.noise_added = self.generator.add_noise(self.abel_transformed, noise_level)
+            self.current_image = self.noise_added
             self.update_plot()
         except ValueError:
             tk.messagebox.showerror("Error", "Please enter a valid noise level")
@@ -345,19 +452,32 @@ help - Show this help
         self._resize_timer = self.root.after(250, self.update_plot)  # 250ms delay
 
     def save_image(self):
+        # Check if there's anything to save
         if self.current_image is None:
             tk.messagebox.showwarning("Warning", "Generate an image first")
             return
 
-        file_path = filedialog.asksaveasfilename(
-            defaultextension='.dat',
-            filetypes=[("DAT files", "*.dat"), ("All files", "*.*")]
-        )
+        # Create and wait for dialog
+        dialog = SaveDialog(self)
+        self.root.wait_window(dialog)
 
-        if file_path:
-            image_to_save = self.abel_transformed if self.abel_transformed is not None else self.current_image
-            np.savetxt(file_path, image_to_save)
-            tk.messagebox.showinfo("Success", "Image saved successfully")
+        if dialog.result is not None:
+            # Get save directory from user
+            save_dir = filedialog.askdirectory()
+            if not save_dir:
+                return
+
+            # Save each selected image
+            saved_files = []
+            for image_name, filename in dialog.result.items():
+                full_path = os.path.join(save_dir, filename)
+                np.savetxt(full_path, dialog.available_images[image_name])
+                saved_files.append(filename)
+
+            # Show success message
+            if saved_files:
+                message = "Saved files:\n" + "\n".join(saved_files)
+                tk.messagebox.showinfo("Success", message)
 
 
 def main():

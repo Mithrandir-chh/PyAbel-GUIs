@@ -59,11 +59,7 @@ class ImageGenerator:
         if orig_min < 0:
             image = image - orig_min
 
-        scaled = (image / image.max()) / noise_level
-        scaled = np.maximum(scaled, 1e-10)
-
-        noisy = np.random.poisson(scaled)
-        noisy = noisy * noise_level
+        noisy = np.random.poisson(image / noise_level) * noise_level
 
         if orig_min < 0:
             noisy = noisy + orig_min

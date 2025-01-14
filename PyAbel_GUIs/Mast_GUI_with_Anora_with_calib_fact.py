@@ -2,10 +2,11 @@ import numpy as np
 import abel
 from scipy.ndimage import shift
 from scipy.signal import find_peaks, peak_prominences
-import matplotlib; matplotlib.use('TkAgg')
+import matplotlib
+
+matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
 from matplotlib.pyplot import imread
 from six.moves import tkinter as tk
 from six.moves import tkinter_ttk as ttk
@@ -23,13 +24,15 @@ root.wm_title("Simple GUI PyAbel")
 f = Figure(figsize=(5, 4), dpi=100)
 a = f.add_subplot(111)
 
-
 IM = None
 AIM = None
 raw_IM = None
 centered_IM = None
+inverse_method = None
 speed_distribution = None
 radial_coords = None
+anni_method = None
+anni_stepsize = None
 ev_per_pixel_squared = None
 display_in_energy = None
 ke_min = None
@@ -49,6 +52,7 @@ def update_plot(image=None):
         f.colorbar(im)
         canvas.draw()
 
+
 def update_slider_range(data):
     vmin = np.min(data)
     vmax = np.max(data)
@@ -67,6 +71,7 @@ def update_slider_range(data):
     vmin_entry.insert(0, f"{vmin:.2f}")
     vmax_entry.delete(0, tk.END)
     vmax_entry.insert(0, f"{vmax:.2f}")
+
 
 def slider_changed(value):
     global last_vmin, last_vmax
@@ -94,12 +99,14 @@ def entry_changed(*args):
     except ValueError:
         pass
 
+
 def _display():
     global IM, raw_IM, canvas, text
     text.insert(tk.END, "raw image\n")
     IM = raw_IM.copy()
     update_slider_range(IM)
     update_plot()
+
 
 def _getfilename():
     global IM, raw_IM, centered_IM, text, last_vmin, last_vmax
@@ -126,6 +133,7 @@ def _getfilename():
     update_slider_range(IM)
     _display()
 
+
 def _center():
     global cent, IM, raw_IM, centered_IM, text
     method = cent.get()
@@ -137,6 +145,7 @@ def _center():
     update_slider_range(IM)
     update_plot()
 
+
 def _display_centered():
     global IM, raw_IM, centered_IM, canvas, text
     if centered_IM is not None:
@@ -147,29 +156,33 @@ def _display_centered():
     else:
         text.insert(tk.END, "Please center the image first\n")
 
+
 def P2(x):
-    return (3*x*x-1)/2
+    return (3 * x * x - 1) / 2
+
 
 def PAD(theta, beta, amp):
-    return amp*(1 + beta*P2(np.cos(theta)))
+    return amp * (1 + beta * P2(np.cos(theta)))
+
 
 def _transform():
-    global IM, AIM, raw_IM, centered_IM, canvas, transform, text
-    method = transform.get()
+    global IM, AIM, raw_IM, centered_IM, canvas, transform, text, inverse_method
+    inverse_method = transform.get()
     text.delete(1.0, tk.END)
-    text.insert(tk.END, f"inverse Abel transform: {method}\n")
-    if "basex" in method:
+    text.insert(tk.END, f"inverse Abel transform: {inverse_method}\n")
+    if "basex" in inverse_method:
         text.insert(tk.END, "  first time calculation of the basis functions may take a while ...\n")
-    if "direct" in method:
+    if "direct" in inverse_method:
         text.insert(tk.END, "   calculation is slowed if Cython unavailable ...\n")
     canvas.draw()
 
     image_to_transform = centered_IM if centered_IM is not None else raw_IM
 
-    AIM = abel.Transform(image_to_transform, method=method, direction="inverse", symmetry_axis=None)
+    AIM = abel.Transform(image_to_transform, method=inverse_method, direction="inverse", symmetry_axis=None)
     # IM = AIM.transform
     # update_slider_range(IM)
     # update_plot()
+
 
 def _display_transformed():
     global IM, raw_IM, AIM, canvas, text
@@ -179,6 +192,7 @@ def _display_transformed():
         update_plot()
     else:
         text.insert(tk.END, "Please transform the image first\n")
+
 
 def find_peak_ranges(x, y, threshold=10, rel_height=0.8, min_width=50):
     # Find peaks
@@ -260,6 +274,7 @@ def update_r_from_ke():
     except ValueError:
         pass
 
+
 def _speed():
     global IM, AIM, canvas, transform, text, speed_distribution, radial_coords
     _transform()
@@ -306,7 +321,11 @@ def _speed():
 
     text.insert(tk.END, f"Prominent peaks found at ranges: {peak_ranges}\n")
 
+
 def generate_ranges(ranges, step=3):
+    global anni_method, anni_stepsize
+    anni_method = 'Non-Rolling'
+    anni_stepsize = step
     result = []
 
     if step == 0:
@@ -326,8 +345,12 @@ def generate_ranges(ranges, step=3):
 
     return result
 
+
 def generate_rolling_ranges(ranges, step=3):
+    global anni_method, anni_stepsize
     result = []
+    anni_method = 'Rolling'
+    anni_stepsize = step
     for start_range, end_range in ranges:
         current = start_range
         while current < end_range:
@@ -351,7 +374,9 @@ def create_save_popup():
         )
         if file_path:
             with open(file_path, 'w') as f:
-                # Write header with appropriate units
+                # Write header with appropriate inverse abel method, anisotropy method, and units
+                f.write(
+                    f"Inverse Abel by {inverse_method}, {anni_method} Anisotropy with step size of {anni_stepsize} pixels\n")
                 f.write("# Pixel_Center\t# Energy(eV)\tBeta2\tBeta2_Error\tIntensity\n")
                 for i in range(len(data_dict['r_centers'])):
                     f.write(
@@ -368,9 +393,8 @@ def create_save_popup():
     return popup, save_data, no_save, button_frame
 
 
-
 def _anisotropy():
-    global IM, AIM, canvas, rmin, rmax, transform, text, step_entry, rolling_var, intensity_threshold
+    global IM, AIM, canvas, rmin, rmax, transform, text, step_entry, rolling_var, intensity_threshold, method
 
     _transform()
 
@@ -409,7 +433,7 @@ def _anisotropy():
     for min_r, max_r in r_range:
         range_intensity = Anni.get_average_intensity_for_range(min_r, max_r)
 
-        if range_intensity > intensity_threshold*Anni.avg_intensity:
+        if range_intensity > intensity_threshold * Anni.avg_intensity:
             beta2_fit, beta2_err, theta_deg, W_theta, theta_plot_deg, W_fit = Anni.calculate_beta2(min_r, max_r)
             r_center = (min_r + max_r) / 2
 
@@ -483,9 +507,11 @@ def _anisotropy():
         text.delete(1.0, tk.END)
         text.insert(tk.END, "No radial ranges had intensity above the average image intensity.\n")
 
+
 def _quit():
     root.quit()
     root.destroy()
+
 
 # Tk Block
 tk.Button(master=root, text='Load image file', command=_getfilename).pack(anchor=tk.W)
@@ -504,31 +530,32 @@ energy_toggle = tk.Checkbutton(energy_frame, text="Display in Energy", variable=
 energy_toggle.pack(side=tk.LEFT, padx=(80, 0))
 #############################################################################################
 frame_for_center1 = tk.Frame(root)
-frame_for_center1.pack(anchor=tk.N, expand=True, padx=(240,0) )
+frame_for_center1.pack(anchor=tk.N, expand=True, padx=(240, 0))
 tk.Button(master=frame_for_center1, text='center image', command=_center).pack(side=tk.LEFT)
 
 cent = ttk.Combobox(master=frame_for_center1, values=center_methods, state="readonly",
                     width=11, height=len(center_methods))
 cent.current(3)
-cent.pack(side=tk.LEFT, padx=(110,0))
+cent.pack(side=tk.LEFT, padx=(110, 0))
 #############################################################################################
 tk.Button(master=root, text='raw image', command=_display).pack(anchor=tk.W)
 
 frame_for_center2 = tk.Frame(root)
-frame_for_center2.pack(anchor=tk.N, expand=True, padx=(225,0) )
-tk.Button(master=frame_for_center2, text='inverse Abel transform', command=lambda: [_transform(), _display_transformed()]).pack(side=tk.LEFT)
+frame_for_center2.pack(anchor=tk.N, expand=True, padx=(225, 0))
+tk.Button(master=frame_for_center2, text='inverse Abel transform',
+          command=lambda: [_transform(), _display_transformed()]).pack(side=tk.LEFT)
 
 transform = ttk.Combobox(master=frame_for_center2, values=Abel_methods, state="readonly",
                          width=13, height=len(Abel_methods))
 transform.current(2)
-transform.pack(side=tk.LEFT, padx=(75,0))
+transform.pack(side=tk.LEFT, padx=(75, 0))
 #############################################################################################
 tk.Button(master=root, text='centered raw image', command=_display_centered).pack(anchor=tk.W)
 #############################################################################################
 tk.Button(master=root, text='speed distribution', command=_speed).pack(anchor=tk.N)
 #############################################################################################
 frame = tk.Frame(root)
-frame.pack(expand=True, padx=(360,0), pady=10)
+frame.pack(expand=True, padx=(360, 0), pady=10)
 
 tk.Button(frame, text='manual anisotropy', command=_anisotropy).grid(row=0, column=0, columnspan=2, sticky=tk.W)
 tk.Label(frame, text="", width=5).grid(row=0, column=2)
@@ -599,10 +626,10 @@ vmax_slider.pack(side=tk.LEFT, fill=tk.X, expand=True)
 vmin_entry.bind('<Return>', entry_changed)
 vmax_entry.bind('<Return>', entry_changed)
 
-
 canvas = FigureCanvasTkAgg(f, master=root)
 a.annotate("load image file", (0.5, 0.6), horizontalalignment="center")
-a.annotate("e.g. data/2_20_23 Diss 20350 REMPI 32452- 2P3-2_ calib. 25k frames.dat", (0.5, 0.5), horizontalalignment="center")
+a.annotate("e.g. data/2_20_23 Diss 20350 REMPI 32452- 2P3-2_ calib. 25k frames.dat", (0.5, 0.5),
+           horizontalalignment="center")
 canvas.draw()
 canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
 

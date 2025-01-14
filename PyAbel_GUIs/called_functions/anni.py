@@ -131,7 +131,7 @@ class Anora:
         initial_guess = [1.0, 0.0]
 
         # Bounds for the parameters: A > 0, beta2 between -1 and 2
-        bounds = ([0.0, -10.0], [np.inf, 10.0])
+        bounds = ([0.0, -1.0], [np.inf, 2.0])
 
         # Perform the curve fitting
         try:

@@ -19,7 +19,7 @@ Abel_methods = ['basex', 'direct', 'hansenlaw', 'linbasex', 'onion_bordas',
 center_methods = ['com', 'convolution', 'gaussian', 'slice']
 
 root = tk.Tk()
-root.wm_title("Simple GUI PyAbel")
+root.wm_title("Master GUI PyAbel")
 
 f = Figure(figsize=(5, 4), dpi=100)
 a = f.add_subplot(111)
@@ -33,7 +33,6 @@ speed_distribution = None
 radial_coords = None
 anni_method = None
 anni_stepsize = None
-ev_per_pixel_squared = None
 display_in_energy = None
 ke_min = None
 ke_max = None
@@ -194,12 +193,12 @@ def _display_transformed():
         text.insert(tk.END, "Please transform the image first\n")
 
 
-def find_peak_ranges(x, y, threshold=10, rel_height=0.8, min_width=50):
+def find_peak_ranges(x, y, threshold=10, rel_height=0.8, min_width=50, prominence_min=None):
     # Find peaks
-    peaks, _ = find_peaks(y, height=threshold)
+    peaks, peak_properties = find_peaks(y, height=threshold, prominence=prominence_min)
 
     # Calculate prominences
-    prominences, _, _ = peak_prominences(y, peaks)
+    prominences = peak_properties['prominences']
 
     peak_ranges = []
     for peak, prominence in zip(peaks, prominences):
@@ -227,26 +226,95 @@ def find_peak_ranges(x, y, threshold=10, rel_height=0.8, min_width=50):
     return peak_ranges
 
 
-def pixel_to_energy(pixel, ev_per_pixel_squared):
-    """Convert pixel value to energy in eV"""
-    return float(ev_per_pixel_squared) * (pixel ** 2)
+def calibration_settings():
+    settings_window = tk.Toplevel(root)
+    settings_window.title("Energy Conversion Settings")
+    settings_window.geometry("400x200")
+
+    # Center the window
+    settings_window.transient(root)
+    settings_window.grab_set()
+
+    # Add labels and entry fields
+    conversion_frame = tk.LabelFrame(settings_window, text="Energy Conversion Settings", padx=10, pady=10)
+    conversion_frame.pack(padx=10, pady=10, fill="x")
+
+    # Parse current conversion factor into base and exponent
+    try:
+        current_value = float(cm_per_pixel_entry.get())
+        base, exponent = f"{current_value:e}".split('e')
+        base = float(base)
+        exponent = int(exponent)
+    except ValueError:
+        base = 1
+        exponent = 1
+
+    # Conversion factor input with scientific notation
+    tk.Label(conversion_frame, text="1 px =").grid(row=0, column=0, padx=5, pady=5)
+
+    # Frame for scientific notation entry
+    sci_frame = tk.Frame(conversion_frame)
+    sci_frame.grid(row=0, column=1, padx=5, pady=5)
+
+    base_entry = tk.Entry(sci_frame, width=8)
+    base_entry.pack(side=tk.LEFT)
+    base_entry.insert(0, f"{base}")
+
+    tk.Label(sci_frame, text="×10^").pack(side=tk.LEFT)
+
+    exp_entry = tk.Entry(sci_frame, width=4)
+    exp_entry.pack(side=tk.LEFT)
+    exp_entry.insert(0, str(exponent))
+
+    tk.Label(conversion_frame, text="kg*m/s").grid(row=0, column=2, padx=5, pady=5)
+
+    # Mass input
+    tk.Label(conversion_frame, text="Ion Mass:").grid(row=1, column=0, padx=5, pady=5)
+    mass_entry = tk.Entry(conversion_frame, width=10)
+    mass_entry.grid(row=1, column=1, padx=5, pady=5)
+    mass_entry.insert(0, "126.90447")  # Default mass for I⁻
+    tk.Label(conversion_frame, text="amu").grid(row=1, column=2, padx=5, pady=5)
+
+    def apply_settings():
+        try:
+            base_val = float(base_entry.get())
+            exp_val = int(exp_entry.get())
+            conversion_factor = base_val * (10 ** exp_val)
+
+            cm_per_pixel_entry.delete(0, tk.END)
+            cm_per_pixel_entry.insert(0, f"{conversion_factor}")
+
+            ion_mass_entry.delete(0, tk.END)
+            ion_mass_entry.insert(0, mass_entry.get())
+
+            update_ke_from_r()
+            settings_window.destroy()
+        except ValueError:
+            tk.messagebox.showerror("Error", "Please enter valid numbers")
+
+    tk.Button(settings_window, text="Apply", command=apply_settings).pack(pady=10)
 
 
-def energy_to_pixel(energy, ev_per_pixel_squared):
-    """Convert energy in eV to pixel value"""
-    return np.sqrt(energy / float(ev_per_pixel_squared))
+def pixel_to_energy(pixel, momentum_per_pixel_squared, ion_mass):
+    """Convert pixel value to energy in cm-1"""
+    return float(((momentum_per_pixel_squared * pixel) ** 2) * (5.03411 * 10 ** 22) / (2 * (ion_mass * 1.6605402 * 10 ** -27)))
+
+
+def energy_to_pixel(energy, momentum_per_pixel_squared, ion_mass):
+    """Convert energy in cm-1 to pixel value"""
+    return float((np.sqrt(energy * 2 * (ion_mass * 1.6605402 * 10 ** -27) / (5.03411 * 10 ** 22)))/momentum_per_pixel_squared)
 
 
 def update_ke_from_r():
     """Update KE range boxes based on r range values"""
-    global ev_per_pixel_squared
     try:
         r_min_val = float(rmin.get())
         r_max_val = float(rmax.get())
-        ev_per_pixel = float(ev_per_pixel_entry.get())
+        cm_per_pixel = float(cm_per_pixel_entry.get())
+        mass = float(ion_mass_entry.get())
 
-        ke_min_val = pixel_to_energy(r_min_val, ev_per_pixel)
-        ke_max_val = pixel_to_energy(r_max_val, ev_per_pixel)
+        ke_min_val = pixel_to_energy(r_min_val, cm_per_pixel, mass)
+        ke_max_val = pixel_to_energy(r_max_val, cm_per_pixel, mass)
 
         ke_min.delete(0, tk.END)
         ke_max.delete(0, tk.END)
@@ -258,19 +326,19 @@ def update_ke_from_r():
 
 def update_r_from_ke():
     """Update r range boxes based on KE range values"""
-    global ev_per_pixel_squared
     try:
         ke_min_val = float(ke_min.get())
         ke_max_val = float(ke_max.get())
-        ev_per_pixel = float(ev_per_pixel_entry.get())
+        cm_per_pixel = float(cm_per_pixel_entry.get())
+        mass = float(ion_mass_entry.get())
 
-        r_min_val = energy_to_pixel(ke_min_val, ev_per_pixel)
-        r_max_val = energy_to_pixel(ke_max_val, ev_per_pixel)
+        r_min_val = energy_to_pixel(ke_min_val, cm_per_pixel, mass)
+        r_max_val = energy_to_pixel(ke_max_val, cm_per_pixel, mass)
 
         rmin.delete(0, tk.END)
         rmax.delete(0, tk.END)
-        rmin.insert(0, f"{r_min_val:.2f}")
-        rmax.insert(0, f"{r_max_val:.2f}")
+        rmin.insert(0, f"{r_min_val:.0f}")
+        rmax.insert(0, f"{r_max_val:.0f}")
     except ValueError:
         pass
 
@@ -288,16 +356,19 @@ def _speed():
     else:
         radial, speed = abel.tools.vmi.angular_integration_3D(AIM.transform)
 
-    speed_distribution = speed / speed[50:].max()
+    speed_distribution = speed / speed.max()
     radial_coords = radial
 
     f.clf()
     a = f.add_subplot(111)
 
+    peak_ranges = find_peak_ranges(radial, speed_distribution, threshold=0.5, rel_height=0.5, min_width=5,
+                                   prominence_min=0.1)
+
     # Convert x-axis to energy if toggle is on
     if display_in_energy.get():
-        x_coords = [pixel_to_energy(r, float(ev_per_pixel_entry.get())) for r in radial]
-        xlabel = "Energy (eV)"
+        x_coords = [pixel_to_energy(r, float(cm_per_pixel_entry.get()), float(ion_mass_entry.get())) for r in radial]
+        xlabel = "Energy (cm^-1)"
     else:
         x_coords = radial
         xlabel = "Radial coordinate (pixels)"
@@ -307,15 +378,19 @@ def _speed():
     a.set_ylabel("Speed distribution (arb. units)")
 
     if display_in_energy.get():
-        a.axis(xmax=pixel_to_energy(500, float(ev_per_pixel_entry.get())), ymin=-0.05)
+        a.axis(xmax=pixel_to_energy(500, float(cm_per_pixel_entry.get()), float(ion_mass_entry.get())), ymin=-0.05)
     else:
         a.axis(xmax=500, ymin=-0.05)
 
-    peak_ranges = find_peak_ranges(x_coords, speed_distribution, threshold=0.1, rel_height=0.5, min_width=5)
-
     for i, (left, right) in enumerate(peak_ranges):
         a.axvspan(left, right, alpha=0.2, color=f'C{i}')
-        a.annotate(f"Peak {i + 1}", ((left + right) / 2, a.get_ylim()[1]), ha='center')
+        if display_in_energy.get():
+            center_pixel = (left + right) / 2
+            center = pixel_to_energy(center_pixel, float(cm_per_pixel_entry.get()), float(ion_mass_entry.get()))
+        else:
+            center = (left + right) / 2
+        a.annotate(f"Peak {i + 1}", (center, a.get_ylim()[1]), ha='center')
+        print(f"Peak {i + 1}", center)
 
     canvas.draw()
 
@@ -377,7 +452,7 @@ def create_save_popup():
                 # Write header with appropriate inverse abel method, anisotropy method, and units
                 f.write(
                     f"Inverse Abel by {inverse_method}, {anni_method} Anisotropy with step size of {anni_stepsize} pixels\n")
-                f.write("# Pixel_Center\t# Energy(eV)\tBeta2\tBeta2_Error\tIntensity\n")
+                f.write("# Pixel_Center\t# Energy(cm-1)\tBeta2\tBeta2_Error\tIntensity\n")
                 for i in range(len(data_dict['r_centers'])):
                     f.write(
                         f"{data_dict['r_centers'][i]:.1f}\t{data_dict['energies'][i]:.1f}\t{data_dict['beta2_values'][i]:.4f}\t"
@@ -441,7 +516,7 @@ def _anisotropy():
             beta2_values.append(beta2_fit)
             beta2_errors.append(beta2_err)
             intensities.append(range_intensity)
-            energy = pixel_to_energy(r_center, float(ev_per_pixel_entry.get()))
+            energy = pixel_to_energy(r_center, float(cm_per_pixel_entry.get()), float(ion_mass_entry.get()))
             energies.append(energy)
 
     # Create plots
@@ -460,8 +535,9 @@ def _anisotropy():
         a = f.add_subplot(111)
 
         if display_in_energy.get():
-            x_coords = [pixel_to_energy(r, float(ev_per_pixel_entry.get())) for r in r_centers]
-            xlabel = "Energy (eV)"
+            x_coords = [pixel_to_energy(r, float(cm_per_pixel_entry.get()), float(ion_mass_entry.get())) for r in
+                        r_centers]
+            xlabel = "Energy (cm^-1)"
         else:
             x_coords = r_centers
             xlabel = "Radial Position (pixels)"
@@ -487,9 +563,9 @@ def _anisotropy():
         text.insert(tk.END, "Results for regions above average intensity:\n")
 
         if display_in_energy.get():
-            text.insert(tk.END, "Energy (eV)\tβ₂\t\tError\t\tIntensity\n")
+            text.insert(tk.END, "Energy (cm^-1)\tβ₂\t\tError\t\tIntensity\n")
             for r_center, beta2, error, intensity in zip(r_centers, beta2_values, beta2_errors, intensities):
-                energy = pixel_to_energy(r_center, float(ev_per_pixel_entry.get()))
+                energy = pixel_to_energy(r_center, float(cm_per_pixel_entry.get()), float(ion_mass_entry.get()))
                 text.insert(tk.END, f"{energy:.1f}\t\t{beta2:.4f}\t± {error:.4f}\t{intensity:.4f}\n")
         else:
             text.insert(tk.END, "Radial Center\tβ₂\t\tError\t\tIntensity\n")
@@ -519,11 +595,20 @@ tk.Button(master=root, text='Load image file', command=_getfilename).pack(anchor
 energy_frame = tk.Frame(root)
 energy_frame.pack(anchor=tk.N, expand=True, padx=(230, 0))
 
-tk.Label(energy_frame, text="1 eV =").pack(side=tk.LEFT)
-ev_per_pixel_entry = tk.Entry(energy_frame, width=10)
-ev_per_pixel_entry.pack(side=tk.LEFT)
-ev_per_pixel_entry.insert(0, "15.3045")  # Default value
-tk.Label(energy_frame, text="pixel²").pack(side=tk.LEFT)
+# Hidden entry for storing the conversion factor
+cm_per_pixel_entry = tk.Entry(root)
+default_base = 6.808455
+default_exp = -24
+cm_per_pixel_entry.insert(0, f"{default_base * (10 ** default_exp)}")
+cm_per_pixel_entry.pack_forget()
+
+ion_mass_entry = tk.Entry(root)
+ion_mass_entry.insert(0, "126.90447")  # Default value
+ion_mass_entry.pack_forget()
+
+# Settings button
+settings_button = tk.Button(energy_frame, text="Energy Settings", command=calibration_settings)
+settings_button.pack(side=tk.LEFT)
 
 display_in_energy = tk.BooleanVar()
 energy_toggle = tk.Checkbutton(energy_frame, text="Display in Energy", variable=display_in_energy)

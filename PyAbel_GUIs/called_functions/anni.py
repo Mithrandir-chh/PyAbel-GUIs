@@ -4,6 +4,7 @@ from scipy.optimize import curve_fit
 from scipy import ndimage
 import abel
 
+
 # for node: Verti -1, Hori 2, circi 0
 class Anora:
     def __init__(self, image, x0=None, y0=None):
@@ -13,6 +14,8 @@ class Anora:
         - image: 2D NumPy array for image.
         - x0, y0: Coordinates of the image center. If None, defaults to the center of the image.
         """
+        self.lower_bound = -1.0  # change beta2 lower bound here
+        self.upper_bound = 2.0  # change beta2 upper bound here
         self.image = image
         self.height, self.width = image.shape
         self.x0 = x0 if x0 is not None else self.width / 2
@@ -130,7 +133,7 @@ class Anora:
         initial_guess = [1.0, 0.0]
 
         # Bounds for the parameters: A > 0, beta2 between -1 and 2
-        bounds = ([0.0, -1.0], [np.inf, 2.0])
+        bounds = ([0.0, self.lower_bound], [np.inf, self.upper_bound])
 
         # Perform the curve fitting
         try:

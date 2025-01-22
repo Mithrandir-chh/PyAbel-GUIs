@@ -123,7 +123,7 @@ class Anora:
 
         # Define the theoretical angular distribution function
         def angular_distribution(theta, A, beta2):
-            P2 = - 0.5 * (3 * np.cos(theta) ** 2 - 1)
+            P2 = 0.5 * (3 * np.sin(theta) ** 2 - 1)
             return A * (1 + beta2 * P2)
 
         # Initial guesses for A and beta2

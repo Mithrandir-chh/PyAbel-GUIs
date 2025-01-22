@@ -41,8 +41,8 @@ class ImageGenerator:
         radial_norm = np.exp(-(R - r0_pixels) ** 2 / (2 * width_pixels ** 2))
         angular_norm = 1 + beta2 * legendre(2)(np.cos(Theta))
 
-        volume = np.sum(radial_norm * angular_norm)
-        N = intensity / volume
+        volume = np.sum(radial_norm * R)
+        N = intensity * 2000 / volume
 
         return N * peak
 
@@ -131,7 +131,7 @@ class SaveDialog(tk.Toplevel):
 
         for image_name, img in self.available_images.items():
             if img is not None:
-                var = tk.BooleanVar()
+                var = tk.BooleanVar(value=True)
                 self.checkboxes[image_name] = var
                 cb = ttk.Checkbutton(main_frame, variable=var, text=image_name)
                 cb.grid(row=row, column=0, sticky="w")
@@ -226,7 +226,7 @@ class ImageGeneratorGUI:
         ttk.Entry(control_frame, textvariable=self.beta2_var, width=10).grid(row=2, column=1, padx=5, pady=2)
 
         ttk.Label(control_frame, text="Width (pixels):").grid(row=3, column=0, padx=5, pady=2)
-        self.width_var = tk.StringVar(value="30")
+        self.width_var = tk.StringVar(value="10")
         ttk.Entry(control_frame, textvariable=self.width_var, width=10).grid(row=3, column=1, padx=5, pady=2)
 
         # Add Peak button
@@ -425,7 +425,6 @@ help - Show this help
             self.update_plot()
         except ValueError:
             tk.messagebox.showerror("Error", "Please enter a valid noise level")
-
 
     def update_plot(self, image=None):
         if image is None:

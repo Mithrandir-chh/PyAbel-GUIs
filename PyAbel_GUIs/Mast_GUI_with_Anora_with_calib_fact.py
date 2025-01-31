@@ -1,7 +1,7 @@
 import numpy as np
 import abel
 from scipy.ndimage import shift
-from scipy.signal import find_peaks, peak_prominences
+from scipy.signal import find_peaks
 import matplotlib
 
 matplotlib.use('TkAgg')

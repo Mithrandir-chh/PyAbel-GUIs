@@ -1,8 +1,6 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 from scipy import ndimage
-import abel
 
 
 # for node: Verti -1, Hori 2, circi 0

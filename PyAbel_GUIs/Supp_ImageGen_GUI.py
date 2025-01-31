@@ -59,10 +59,7 @@ class ImageGenerator:
         if orig_min < 0:
             image = image - orig_min
 
-        noisy = np.random.poisson(image / noise_level) * noise_level
-
-        if orig_min < 0:
-            noisy = noisy + orig_min
+        noisy = np.random.poisson(image / noise_level)
 
         noisy_min = noisy.min()
         noisy_max = noisy.max()
@@ -139,6 +136,12 @@ class SaveDialog(tk.Toplevel):
                                                                                padx=(10, 0))
                 row += 1
 
+        # Add checkbox for log file
+        self.save_log_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(main_frame, variable=self.save_log_var, text="Save peak parameters logfile").grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        row += 1
+
         ttk.Label(main_frame, text="Base filename:").grid(row=row, column=0, sticky="w", pady=(20, 0))
         ttk.Entry(main_frame, textvariable=self.filename_var, width=40).grid(row=row + 1, column=0, columnspan=2,
                                                                              sticky="ew")
@@ -146,6 +149,29 @@ class SaveDialog(tk.Toplevel):
         button_frame.grid(row=row + 2, column=0, columnspan=2, pady=(20, 0))
         ttk.Button(button_frame, text="Save", command=self.save).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=self.cancel).pack(side=tk.LEFT, padx=5)
+
+    def save_log_file(self, save_dir, base_filename):
+        # Create a log file to save peak parameters
+        log_filename = f"{base_filename}_parameters.txt"
+        full_path = os.path.join(save_dir, log_filename)
+
+        with open(full_path, 'w') as f:
+            f.write(f"Image Size: {self.parent_gui.generator.size}x{self.parent_gui.generator.size}\n")
+            if self.parent_gui.noise_added is not None:
+                f.write(f"Noise Level: {self.parent_gui.noise_var.get()}\n")
+            f.write("\nPeak Parameters:\n")
+
+            for i, (radius, intensity, beta2, width) in enumerate(self.parent_gui.generator.peaks, 1):
+                f.write(f"\nPeak {i}:\n")
+                f.write(f"  Radius (pixels): {radius:.1f}\n")
+                f.write(f"  Intensity: {intensity:.1f}\n")
+                f.write(f"  Beta2: {beta2:.1f}\n")
+                f.write(f"  Width (pixels): {width:.1f}\n")
+            f.write("\nAdd Peak Commands\n")
+            for i, (radius, intensity, beta2, width) in enumerate(self.parent_gui.generator.peaks, 1):
+                f.write(f"\nadd {radius:.1f} {intensity:.1f} {beta2:.1f} {width:.1f}")
+
+        return log_filename
 
     def save(self):
         selected = {name: var.get() for name, var in self.checkboxes.items()}
@@ -165,6 +191,10 @@ class SaveDialog(tk.Toplevel):
                     filename = f"{base_filename}_current.dat"
                 self.result[image_name] = filename
 
+        # Add log file to result if selected
+        if self.save_log_var.get():
+            self.result['log_file'] = f"{base_filename}_parameters.txt"
+
         self.destroy()
 
     def cancel(self):
@@ -176,7 +206,7 @@ class ImageGeneratorGUI:
         self.root = root
         self.root.title("Image Generator GUI")
 
-        self.root.grid_columnconfigure(0, minsize=240, weight=0)
+        self.root.grid_columnconfigure(0, minsize=300, weight=0)
 
         self.root.grid_columnconfigure(1, weight=1)
 
@@ -184,7 +214,7 @@ class ImageGeneratorGUI:
         self.root.grid_rowconfigure(1, weight=1)  # stretches vertically
 ################################################################################
         # Initialize image generator
-        self.generator = ImageGenerator(n=1000)
+        self.generator = ImageGenerator(n=800)
         self.current_image = None
         self.generated_image = None
         self.abel_transformed = None
@@ -235,7 +265,7 @@ class ImageGeneratorGUI:
 
         # Noise control
         ttk.Label(control_frame, text="Noise Level:").grid(row=5, column=0, padx=5, pady=2)
-        self.noise_var = tk.StringVar(value="0.1")
+        self.noise_var = tk.StringVar(value="1.0")
         ttk.Entry(control_frame, textvariable=self.noise_var, width=10).grid(row=5, column=1, padx=5, pady=2)
 
         # Operation buttons
@@ -249,36 +279,73 @@ class ImageGeneratorGUI:
 
     def create_canvas_frame(self):
         self.canvas_frame = ttk.LabelFrame(self.root, text="Image Display", padding="5 5 5 5")
-        self.canvas_frame.grid(row=0, column=1, rowspan=2, padx=(5, 10), pady=5, sticky="nsew")
+        self.canvas_frame.grid(row=0, column=1, rowspan=3, padx=(5, 10), pady=5, sticky="nsew")
 
     def create_peak_list_frame(self):
-        peak_frame = ttk.LabelFrame(self.root, text="Peak List & Commands", padding="5 5 5 5")
-        peak_frame.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        # Create separate frames for peaks and commands
+        peak_display_frame = ttk.LabelFrame(self.root, text="Peak List", padding="5 5 5 5")
+        peak_display_frame.grid(row=1, column=0, padx=5, pady=(5, 0), sticky="nsew")
 
-        # Create text widget and scrollbar
-        self.peak_list = tk.Text(peak_frame, height=10, width=30)
-        scrollbar = ttk.Scrollbar(peak_frame, orient="vertical", command=self.peak_list.yview)
-        self.peak_list.configure(yscrollcommand=scrollbar.set)
+        command_frame = ttk.LabelFrame(self.root, text="Commands", padding="5 5 5 5")
+        command_frame.grid(row=2, column=0, padx=5, pady=(5, 5), sticky="nsew")
 
-        # Command entry
-        self.command_entry = tk.Entry(peak_frame)
-        self.command_entry.bind('<Return>', self.process_command)
+        # Peak List section
+        # Create text widget and scrollbar for peak list
+        peak_container = ttk.Frame(peak_display_frame)  # Container for peak list and its scrollbar
+        peak_container.pack(fill=tk.BOTH, expand=True)
 
-        # Pack widgets
+        self.peak_list = tk.Text(peak_container, height=10, width=30)
+        peak_scrollbar = ttk.Scrollbar(peak_container, orient="vertical", command=self.peak_list.yview)
+        self.peak_list.configure(yscrollcommand=peak_scrollbar.set)
+
         self.peak_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.command_entry.pack(side=tk.BOTTOM, fill=tk.X)
+        peak_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Command section
+        cmd_container = ttk.Frame(command_frame)  # Container for command entry and its scrollbar
+        cmd_container.pack(fill=tk.BOTH, expand=True)
+
+        self.command_entry = tk.Text(cmd_container, height=4, width=30)
+        cmd_scrollbar = ttk.Scrollbar(cmd_container, orient="vertical", command=self.command_entry.yview)
+        self.command_entry.configure(yscrollcommand=cmd_scrollbar.set)
+
+        self.command_entry.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        cmd_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Execute button in its own container at the bottom of command frame
+        button_container = ttk.Frame(command_frame)
+        button_container.pack(fill=tk.X, pady=(5, 0))
+        execute_button = ttk.Button(button_container, text="Execute Commands", command=self.process_multiline_commands)
+        execute_button.pack(side=tk.RIGHT)
 
         # Add help text
-        self.peak_list.insert(tk.END, """Available commands:
-add r i b w - Add peak (radius, intensity, beta2, width)
-del n - Delete peak number n
-edit n r i b w - Edit peak n
-clear - Clear all peaks
-list - List all peaks
-help - Show this help
-""")
+        self.peak_list.insert(tk.END, f"""Available commands:
+    add r i b w - Add peak (radius, 
+    intensity, beta2, width)
+    del n - Delete peak number n
+    edit n r i b w - Edit peak n
+    clear - Clear all peaks
+    list - List all peaks
+    help - Show this help
+    
+Press Enter for new lines. 
+
+Click Execute or Ctrl+Return to run commands.
+
+Maximum allowed radius: {self.generator.size/2} pixels
+    """)
         self.peak_list.configure(state='disabled')
+
+        # Bind Ctrl+Return to execute commands
+        self.command_entry.bind('<Control-Return>', self.process_multiline_commands)
+
+    def process_multiline_commands(self, event=None):
+        # Get all text from the command entry
+        commands = self.command_entry.get("1.0", tk.END)
+        # Clear the command entry
+        self.command_entry.delete("1.0", tk.END)
+        # Process the commands
+        self.process_command(commands)
 
     def add_peak_from_inputs(self):
         try:
@@ -287,91 +354,123 @@ help - Show this help
             beta2 = float(self.beta2_var.get())
             width = float(self.width_var.get())
 
+            # Check if peak radius is within image size limit
+            if radius >= self.generator.size / 2:
+                raise ValueError(f"Peak radius ({radius}) exceeds maximum allowed value ({self.generator.size / 2}). "
+                                 f"The radius must be less than half the image size ({self.generator.size / 2})")
+            if radius < 0:
+                raise ValueError("Radius cannot be negative")
+
             # Add peak through command interface to maintain consistency
             command = f"add {radius} {intensity} {beta2} {width}"
-            self.command_entry.insert(0, command)
+            self.command_entry.insert(1.0, command)
             self.process_command()
 
-        except ValueError:
-            tk.messagebox.showerror("Error", "Please enter valid numbers")
+        except ValueError as e:
+            tk.messagebox.showerror("Error", str(e))
 
     def process_command(self, event=None):
         if isinstance(event, str):  # If called directly with a command
             command = event
         else:
-            command = self.command_entry.get().strip().lower()
-        self.command_entry.delete(0, tk.END)
+            command = self.command_entry.get("1.0", tk.END).strip()
+            self.command_entry.delete("1.0", tk.END)  # Clear using text indices
 
-        try:
-            if command == 'help':
+        # Split commands by newlines and process each line
+        commands = command.split('\n')
+
+        for command in commands:
+            command = command.strip().lower()
+            if not command:  # Skip empty lines
+                continue
+
+            try:
+                if command == 'help':
+                    self.peak_list.configure(state='normal')
+                    self.peak_list.delete("1.0", tk.END)  # Using text indices
+                    self.peak_list.insert(tk.END, f"""Available commands:
+    add r i b w - Add peak (radius, 
+    intensity, beta2, width)
+    del n - Delete peak number n
+    edit n r i b w - Edit peak n
+    clear - Clear all peaks
+    list - List all peaks
+    help - Show this help
+    
+Press Enter for new lines. 
+
+Click Execute or Ctrl+Return to run commands.
+
+Maximum allowed radius: {self.generator.size/2} pixels
+    """)
+                    self.peak_list.configure(state='disabled')
+
+                elif command.startswith('add'):
+                    # add peak command
+                    parts = command.split()
+                    if len(parts) == 5:  # add r i b w
+                        _, r, i, b, w = parts
+
+                        # Check if peak radius is within image size limit
+                        radius = float(r)
+                        if radius >= self.generator.size / 2:
+                            raise ValueError(
+                                f"Peak radius ({radius}) exceeds maximum allowed value ({self.generator.size / 2}). "
+                                f"The radius must be less than half the image size ({self.generator.size / 2})")
+                            tk.messagebox.showerror("Error", str(ValueError))
+                        if radius < 0:
+                            raise ValueError("Radius cannot be negative")
+                            tk.messagebox.showerror("Error", str(ValueError))
+                        # Update the input fields
+                        self.radius_var.set(r)
+                        self.intensity_var.set(i)
+                        self.beta2_var.set(b)
+                        self.width_var.set(w)
+                        # Add the peak
+                        self.generator.add_peak(float(r), float(i), float(b), float(w))
+                        self.update_peak_list()
+                    else:
+                        raise ValueError("Add command requires 4 parameters: radius intensity beta2 width")
+
+                elif command.startswith('del'):
+                    # delete peak command
+                    _, n = command.split()
+                    n = int(n) - 1
+                    if 0 <= n < len(self.generator.peaks):
+                        self.generator.peaks.pop(n)
+                        self.update_peak_list()
+                    else:
+                        raise ValueError("Invalid peak number")
+
+                elif command.startswith('edit'):
+                    # edit peak command
+                    _, n, r, i, b, w = command.split()
+                    n = int(n) - 1  # Convert to 0-based index
+                    if 0 <= n < len(self.generator.peaks):
+                        # Update the input fields
+                        self.radius_var.set(r)
+                        self.intensity_var.set(i)
+                        self.beta2_var.set(b)
+                        self.width_var.set(w)
+                        # Update the peak
+                        self.generator.peaks[n] = [float(r), float(i), float(b), float(w)]
+                        self.update_peak_list()
+                    else:
+                        raise ValueError("Invalid peak number")
+
+                elif command == 'clear':
+                    self.clear_peaks()
+
+                elif command == 'list':
+                    self.update_peak_list()
+
+                elif command:  # Only show error for non-empty commands
+                    raise ValueError("Unknown command")
+
+            except (ValueError, IndexError) as e:
                 self.peak_list.configure(state='normal')
-                self.peak_list.delete(1.0, tk.END)
-                self.peak_list.insert(tk.END, """Available commands:
-add r i b w - Add peak (radius, intensity, beta2, width)
-del n - Delete peak number n
-edit n r i b w - Edit peak n
-clear - Clear all peaks
-list - List all peaks
-help - Show this help
-""")
+                self.peak_list.insert(tk.END, f"Error in command '{command}': {str(e)}\n")
                 self.peak_list.configure(state='disabled')
-
-            elif command.startswith('add'):
-                # add peak command
-                parts = command.split()
-                if len(parts) == 5:  # add r i b w
-                    _, r, i, b, w = parts
-                    # Update the input fields
-                    self.radius_var.set(r)
-                    self.intensity_var.set(i)
-                    self.beta2_var.set(b)
-                    self.width_var.set(w)
-                    # Add the peak
-                    self.generator.add_peak(float(r), float(i), float(b), float(w))
-                    self.update_peak_list()
-                else:
-                    raise ValueError("Add command requires 4 parameters: radius intensity beta2 width")
-
-            elif command.startswith('del'):
-                # delete peak command
-                _, n = command.split()
-                n = int(n) - 1
-                if 0 <= n < len(self.generator.peaks):
-                    self.generator.peaks.pop(n)
-                    self.update_peak_list()
-                else:
-                    raise ValueError("Invalid peak number")
-
-            elif command.startswith('edit'):
-                # edit peak command
-                _, n, r, i, b, w = command.split()
-                n = int(n) - 1  # Convert to 0-based index
-                if 0 <= n < len(self.generator.peaks):
-                    # Update the input fields with the new values
-                    self.radius_var.set(r)
-                    self.intensity_var.set(i)
-                    self.beta2_var.set(b)
-                    self.width_var.set(w)
-                    # Update the peak
-                    self.generator.peaks[n] = [float(r), float(i), float(b), float(w)]
-                    self.update_peak_list()
-                else:
-                    raise ValueError("Invalid peak number")
-
-            elif command == 'clear':
-                # u guessed it, clear peak command
-                self.clear_peaks()
-
-            elif command == 'list':
-                self.update_peak_list()
-
-            else:
-                raise ValueError("Unknown command")
-
-        except (ValueError, IndexError) as e:
-            self.peak_list.configure(state='normal')
-            self.peak_list.insert(tk.END, f"Error: {str(e)}\n")
-            self.peak_list.configure(state='disabled')
 
     def clear_peaks(self):
         self.generator.clear_peaks()
@@ -465,9 +564,15 @@ help - Show this help
             # Save each selected image
             saved_files = []
             for image_name, filename in dialog.result.items():
-                full_path = os.path.join(save_dir, filename)
-                np.savetxt(full_path, dialog.available_images[image_name])
-                saved_files.append(filename)
+                if image_name == 'log_file':
+                    # Save log file
+                    log_filename = dialog.save_log_file(save_dir, os.path.splitext(filename)[0])
+                    saved_files.append(log_filename)
+                else:
+                    # Save image data
+                    full_path = os.path.join(save_dir, filename)
+                    np.savetxt(full_path, dialog.available_images[image_name])
+                    saved_files.append(filename)
 
             # Show success message
             if saved_files:

@@ -232,11 +232,11 @@ class MainGUI(tk.Tk):
         # R range
         tk.Label(range_frame, text="Px Range:").grid(row=1, column=0, padx=5, pady=2)
         self.rmin = tk.Entry(range_frame, width=5)
-        self.rmin.insert(0, "368")
+        self.rmin.insert(0, "0")
         self.rmin.grid(row=1, column=1, padx=2, pady=2)
         tk.Label(range_frame, text="to").grid(row=1, column=2)
         self.rmax = tk.Entry(range_frame, width=5)
-        self.rmax.insert(0, "389")
+        self.rmax.insert(0, "350")
         self.rmax.grid(row=1, column=3, padx=2, pady=2)
 
         # KE range

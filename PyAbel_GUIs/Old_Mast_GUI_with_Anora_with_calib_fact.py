@@ -363,7 +363,7 @@ def _speed():
     a = f.add_subplot(111)
 
     peak_ranges = find_peak_ranges(radial, speed_distribution, threshold=0.5, rel_height=0.5, min_width=5,
-                                   prominence_min=0.5)
+                                   prominence_min=0.1)
 
     # Convert x-axis to energy if toggle is on
     if display_in_energy.get():

@@ -17,21 +17,21 @@ from called_functions.anni import Anora
 ██║╚██╗██║████╔╝██║██║  ██║██╔══╝  ╚════██║██╗
 ██║ ╚████║╚██████╔╝██████╔╝███████╗███████║╚═╝
 ╚═╝  ╚═══╝ ╚═════╝ ╚═════╝ ╚══════╝╚══════╝   
-                                              
+
 ██╗   ██╗███████╗██████╗ ████████╗██╗           ██╗
 ██║   ██║██╔════╝██╔══██╗╚══██╔══╝██║          ███║
 ██║   ██║█████╗  ██████╔╝   ██║   ██║    █████╗╚██║
 ╚██╗ ██╔╝██╔══╝  ██╔══██╗   ██║   ██║    ╚════╝ ██║
  ╚████╔╝ ███████╗██║  ██║   ██║   ██║           ██║
   ╚═══╝  ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚═╝           ╚═╝
-                                                   
+
 ██╗  ██╗ ██████╗ ██████╗ ██╗            ██████╗    
 ██║  ██║██╔═══██╗██╔══██╗██║            ╚════██╗   
 ███████║██║   ██║██████╔╝██║             █████╔╝   
 ██╔══██║██║   ██║██╔══██╗██║            ██╔═══╝    
 ██║  ██║╚██████╔╝██║  ██║██║            ███████╗   
 ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝            ╚══════╝   
-                                                   
+
  ██████╗██╗██████╗  ██████╗██╗         ██████╗     
 ██╔════╝██║██╔══██╗██╔════╝██║        ██╔═████╗    
 ██║     ██║██████╔╝██║     ██║        ██║██╔██║    
@@ -52,6 +52,7 @@ class MainGUI(tk.Tk):
         self.raw_IM = None
         self.centered_IM = None
         self.IM = None
+        self.fix_IM = None
         self.AIM = None
         self.inverse_method = None
         self.speed_distribution = None
@@ -130,18 +131,25 @@ class MainGUI(tk.Tk):
                                          command=self._display_centered)
         display_centered_btn.grid(row=0, column=4, padx=5, pady=5)
 
+        # Row 1: Image fixer toggle
+        self.fix_center_artifact = tk.BooleanVar()
+        fixer_toggle = tk.Checkbutton(self.top_frame, text="Fix Center Artifact",
+                                       variable=self.fix_center_artifact)
+        fixer_toggle.grid(row=1, column=1, padx=5, pady=5)
+
         # Row 1: Abel transform combo + button
         abel_btn = tk.Button(self.top_frame, text="Inverse Abel Transform",
-                             command=lambda: [self._transform(), self._display_transformed()])
-        abel_btn.grid(row=1, column=1, padx=5, pady=5)
+                             command=lambda: [self._transform(), self._image_fixer(),
+                                              self._display_transformed()])
+        abel_btn.grid(row=1, column=2, padx=5, pady=5)
 
         self.Abel_methods = [
-            'basex','direct','hansenlaw','linbasex','onion_bordas',
-            'onion_peeling','rbasex','three_point','two_point'
+            'basex', 'direct', 'daun', 'hansenlaw', 'linbasex', 'onion_bordas',
+            'onion_peeling', 'rbasex', 'three_point', 'two_point'
         ]
         self.transform_combo = ttk.Combobox(self.top_frame, values=self.Abel_methods, state="readonly", width=13)
         self.transform_combo.current(0)  # default to 'basex'
-        self.transform_combo.grid(row=1, column=2, padx=5, pady=5, sticky="w")
+        self.transform_combo.grid(row=1, column=3, padx=5, pady=5, sticky="w")
 
         # Row 1: Speed distribution button
         speed_btn = tk.Button(self.top_frame, text="Speed Distribution",
@@ -151,7 +159,7 @@ class MainGUI(tk.Tk):
     # Middle Frame Builders
     def _build_figure_canvas(self):
         # Pleft plot frame
-        self.fig = Figure(figsize=(5,4), dpi=100)
+        self.fig = Figure(figsize=(5, 4), dpi=100)
         self.ax = self.fig.add_subplot(111)
         self.ax.annotate("Load an image file", (0.5, 0.6), ha="center")
         self.ax.annotate("via 'Load image file' button above.", (0.5, 0.5), ha="center")
@@ -271,12 +279,16 @@ class MainGUI(tk.Tk):
 
     # Bottom Frame Builders
     def _build_bottom_frame(self):
-        # Text Box and Quit Button
+        # Text Box & Save and Quit Buttons
         self.text_box = tk.Text(self.bottom_frame, height=5, fg="blue")
         self.text_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         quit_btn = tk.Button(self.bottom_frame, text="Quit", command=self._quit)
         quit_btn.pack(side=tk.RIGHT, padx=10, pady=10)
+
+        save_data_btn = tk.Button(self.bottom_frame, text="Save",
+                                  command=self._save_current_image_data)
+        save_data_btn.pack(side=tk.RIGHT, padx=10, pady=10)
 
         # Initial text
         self.update_text("To start, load an image data file.\n", clear_first=True)
@@ -380,17 +392,125 @@ class MainGUI(tk.Tk):
             symmetry_axis=None
         )
 
-    def _display_transformed(self):
+    def _image_fixer(self):
         if self.AIM is not None:
             self.IM = self.AIM.transform
-            self._update_slider_range(self.IM)
-            self._update_plot()
+            center_col = self.IM.shape[1] // 2
+            center_row = self.IM.shape[0] // 2
+            artifact_width = 10
+
+            # Make an artifact-free image for clean mean and std
+            non_artifact = np.delete(self.IM, np.s_[center_col - artifact_width:center_col + artifact_width + 1],
+                                     axis=1)
+            mean_intensity = np.mean(non_artifact)
+            std_intensity = np.std(non_artifact)
+            threshold = mean_intensity + 15 * std_intensity
+
+            # Intensity mask for the whole image
+            intensity_mask = self.IM > threshold
+            # Regional mask for the center column
+            region_mask = np.zeros_like(self.IM, dtype=bool)
+            region_mask[:, center_col - artifact_width:center_col + artifact_width + 1] = True
+            mask = intensity_mask & region_mask
+            self.fix_IM = np.copy(self.IM)
+
+            # Define how far to look in each direction
+            search_range = 15  # Check a 31x31 area around
+
+            # Radius similarity threshold
+            radius_epsilon = 0.1
+
+            for i in range(self.IM.shape[0]):
+                for j in range(center_col - artifact_width, center_col + artifact_width + 1):
+                    if mask[i, j]:
+                        # Calculate radius of this pixel from center
+                        y_rel = i - center_row
+                        x_rel = j - center_col
+                        radius_p = np.sqrt(x_rel ** 2 + y_rel ** 2)
+
+                        # list to store valid neighbors
+                        valid_neighbors = []
+
+                        # Check all neighboring pixels within search range
+                        for di in range(-search_range, search_range + 1):
+                            for dj in range(-search_range, search_range + 1):
+                                # Skip the center pixel
+                                if di == 0 and dj == 0:
+                                    continue
+
+                                # Get neighbor coordinates
+                                ni = i + di
+                                nj = j + dj
+
+                                # Check if coordinates are within image boundaries
+                                if 0 <= ni < self.IM.shape[0] and 0 <= nj < self.IM.shape[1]:
+                                    # Calculate radius of this neighbor
+                                    ny_rel = ni - center_row
+                                    nx_rel = nj - center_col
+                                    radius_n = np.sqrt(nx_rel ** 2 + ny_rel ** 2)
+
+                                    # Check if this neighbor is at approximately the same radius
+                                    if abs(radius_n - radius_p) < radius_epsilon:
+                                        pixel_value = self.IM[ni, nj]
+
+                                        # Only use pixels that are below the threshold
+                                        if pixel_value <= 1.5*threshold:
+                                            valid_neighbors.append(pixel_value)
+
+                        # If nothing in initial search, then wider search
+                        if not valid_neighbors:
+                            wider_range = 5
+
+                            for di in range(-wider_range, wider_range + 1):
+                                for dj in range(-wider_range, wider_range + 1):
+                                    # Skip center
+                                    if di == 0 and dj == 0:
+                                        continue
+
+                                    ni = i + di
+                                    nj = j + dj
+
+                                    if 0 <= ni < self.IM.shape[0] and 0 <= nj < self.IM.shape[1]:
+                                        ny_rel = ni - center_row
+                                        nx_rel = nj - center_col
+                                        radius_n = np.sqrt(nx_rel ** 2 + ny_rel ** 2)
+
+                                        if abs(radius_n - radius_p) < radius_epsilon:
+                                            pixel_value = self.IM[ni, nj]
+                                            if pixel_value <= 1.5*threshold:
+                                                valid_neighbors.append(pixel_value)
+
+                        # Replace pixel value with maximum of valid neighbors
+                        if valid_neighbors:
+                            self.fix_IM[i, j] = np.max(valid_neighbors)
+                        else:
+                            self.fix_IM[i, j] = mean_intensity
+
+            return self.fix_IM
+        else:
+            self.text_box.insert(tk.END, "Please transform the image first.\n")
+            self.update_text("Please transform the image first.\n", clear_first=True)
+
+    def _display_transformed(self):
+        if self.fix_IM is not None and self.AIM is not None:
+            if self.fix_center_artifact.get():
+                self.IM = self.fix_IM
+                self._update_slider_range(self.fix_IM)
+                self._update_plot()
+            else:
+                self.IM = self.AIM.transform
+                self._update_slider_range(self.AIM.transform)
+                self._update_plot()
+
         else:
             self.text_box.insert(tk.END, "Please transform the image first.\n")
             self.update_text("Please transform the image first.\n", clear_first=True)
 
     def _speed(self):
         self._transform()
+        self._image_fixer()
+        if self.fix_IM is None:
+            return
         if self.AIM is None:
             return
 
@@ -402,7 +522,10 @@ class MainGUI(tk.Tk):
         elif self.transform_combo.get() == 'rbasex':
             radial, speed, _ = self.AIM.distr.rIbeta()
         else:
-            radial, speed = abel.tools.vmi.angular_integration_3D(self.AIM.transform)
+            if self.fix_center_artifact.get():
+                radial, speed = abel.tools.vmi.angular_integration_3D(self.fix_IM)
+            else:
+                radial, speed = abel.tools.vmi.angular_integration_3D(self.AIM.transform)
 
         self.speed_distribution = speed / speed.max()
         self.radial_coords = radial
@@ -412,7 +535,7 @@ class MainGUI(tk.Tk):
         ax = self.fig.add_subplot(111)
 
         peak_ranges = self.find_peak_ranges(radial, self.speed_distribution, threshold=0.5, rel_height=0.5, min_width=5,
-                                       prominence_min=0.1)
+                                            prominence_min=0.1)
 
         if self.display_in_energy.get():
             x_coords = [self._pixel_to_energy(r) for r in radial]
@@ -444,13 +567,19 @@ class MainGUI(tk.Tk):
     # Anisotropy
     def _anisotropy(self):
         self._transform()
+        self._image_fixer()
+        if self.fix_IM is None:
+            return
         if self.AIM is None:
             return
 
         # Prepare Anora
-        img = self.AIM.transform
+        if self.fix_center_artifact.get():
+            img = self.fix_IM
+        else:
+            img = self.AIM.transform
         height, width = img.shape
-        x0, y0 = width/2, height/2
+        x0, y0 = width / 2, height / 2
         Anni = Anora(img, x0, y0)
 
         # Inputs
@@ -478,7 +607,7 @@ class MainGUI(tk.Tk):
             rng_intensity = Anni.get_average_intensity_for_range(start_r, end_r)
             if rng_intensity > threshold_mult * Anni.avg_intensity:
                 beta2, err, *_ = Anni.calculate_beta2(start_r, end_r)
-                center = (start_r + end_r)/2.0
+                center = (start_r + end_r) / 2.0
                 r_centers.append(center)
                 beta2_vals.append(beta2)
                 beta2_errs.append(err)
@@ -530,7 +659,7 @@ class MainGUI(tk.Tk):
             'beta2_errors': beta2_errs,
             'intensities': intensities,
             'energies': energies
-            }
+        }
 
         # Create save popup
         self._create_save_popup(self.anisotropy_data)
@@ -637,17 +766,46 @@ class MainGUI(tk.Tk):
                         f"{data_dict['beta2_errors'][i]:.4f}\t{data_dict['intensities'][i]:.4f}\n")
         popup.destroy()
 
-    def _update_slider_range(self, data):
-        vmin = np.percentile(data, 0.5)
-        if vmin < 0:
-            vmin = 0
-        vmax = np.percentile(data, 99.9)
-        range_size = vmax - vmin
+    def _save_current_image_data(self):
+        if self.IM is None:
+            self.update_text("No image data to save.\n", clear_first=False)
+            return
 
-        if range_size <= 2:
-            resolution = 0.05
+        file_path = filedialog.asksaveasfilename(
+            defaultextension='.dat',
+            filetypes=[("DAT files", "*.dat"), ("Text files", "*.txt"), ("All files", "*.*")]
+        )
+
+        if file_path:
+            try:
+                np.savetxt(file_path, self.IM)
+                self.update_text(f"Image data saved to {file_path}\n", clear_first=False)
+            except Exception as e:
+                self.update_text(f"Error saving image data: {str(e)}\n", clear_first=False)
+
+    def _update_slider_range(self, data):
+        if self.fix_center_artifact.get():
+            vmin = np.percentile(data, 0.5)
+            if vmin < 0:
+                vmin = 0
+            vmax = np.percentile(data, 99.99)
+            range_size = vmax - vmin
+
+            if range_size <= 2:
+                resolution = 0.05
+            else:
+                resolution = range_size / 100
         else:
-            resolution = range_size / 100
+            vmin = np.percentile(data, 0.5)
+            if vmin < 0:
+                vmin = 0
+            vmax = np.percentile(data, 99.99)
+            range_size = vmax - vmin
+
+            if range_size <= 2:
+                resolution = 0.05
+            else:
+                resolution = range_size / 100
 
         self.vmin_slider.config(from_=vmin, to=vmax, resolution=resolution)
         self.vmax_slider.config(from_=vmin, to=vmax, resolution=resolution)

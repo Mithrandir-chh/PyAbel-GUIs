@@ -157,7 +157,7 @@ class MainGUI(tk.Tk):
                               command=self._speed)
         speed_btn.grid(row=1, column=3, padx=5, pady=5)
 
-        # Add speed settings button next to speed distribution button
+        # Row 1: Speed settings button
         speed_settings_btn = tk.Button(self.top_frame, text="Peak Settings",
                                        command=self._speed_settings)
         speed_settings_btn.grid(row=1, column=4, padx=5, pady=5)

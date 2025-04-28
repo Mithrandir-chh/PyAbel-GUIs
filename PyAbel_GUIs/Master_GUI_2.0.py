@@ -3,7 +3,6 @@ import abel
 from scipy.ndimage import shift
 from scipy.signal import find_peaks
 import matplotlib
-
 matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure

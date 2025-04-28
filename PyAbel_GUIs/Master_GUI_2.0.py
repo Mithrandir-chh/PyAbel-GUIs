@@ -136,12 +136,13 @@ class MainGUI(tk.Tk):
         fixer_toggle = tk.Checkbutton(self.top_frame, text="Fix Center Artifact",
                                       variable=self.fix_center_artifact)
         fixer_toggle.grid(row=1, column=1, padx=5, pady=5)
+        fixer_toggle.pack_forget()
 
         # Row 1: Abel transform combo + button
         abel_btn = tk.Button(self.top_frame, text="Inverse Abel Transform",
                              command=lambda: [self._transform(), self._image_fixer(),
                                               self._display_transformed()])
-        abel_btn.grid(row=1, column=2, padx=5, pady=5)
+        abel_btn.grid(row=1, column=1, padx=5, pady=5)
 
         self.Abel_methods = [
             'basex', 'direct', 'daun', 'hansenlaw', 'linbasex', 'onion_bordas',
@@ -149,12 +150,17 @@ class MainGUI(tk.Tk):
         ]
         self.transform_combo = ttk.Combobox(self.top_frame, values=self.Abel_methods, state="readonly", width=13)
         self.transform_combo.current(0)  # default to 'basex'
-        self.transform_combo.grid(row=1, column=3, padx=5, pady=5, sticky="w")
+        self.transform_combo.grid(row=1, column=2, padx=5, pady=5, sticky="w")
 
         # Row 1: Speed distribution button
         speed_btn = tk.Button(self.top_frame, text="Speed Distribution",
                               command=self._speed)
-        speed_btn.grid(row=1, column=4, padx=5, pady=5)
+        speed_btn.grid(row=1, column=3, padx=5, pady=5)
+
+        # Add speed settings button next to speed distribution button
+        speed_settings_btn = tk.Button(self.top_frame, text="Peak Settings",
+                                       command=self._speed_settings)
+        speed_settings_btn.grid(row=1, column=4, padx=5, pady=5)
 
     # Middle Frame Builders
     def _build_figure_canvas(self):
@@ -379,6 +385,10 @@ class MainGUI(tk.Tk):
 
         self.raw_IM = self.IM.copy()
         self.centered_IM = None
+
+        # Purge previous speed info
+        self.speed_distribution = None
+        self.radial_coords = None
 
         self._update_slider_range(self.IM)
         self._display_raw()
@@ -611,39 +621,18 @@ class MainGUI(tk.Tk):
         self.speed_distribution = speed / speed.max()
         self.radial_coords = radial
 
-        # Re-plot
-        self.fig.clf()
-        ax = self.fig.add_subplot(111)
+        # Initialize peak finding parameters if not already set
+        if not hasattr(self, 'peak_threshold'):
+            self.peak_threshold = 0.5
+        if not hasattr(self, 'peak_rel_height'):
+            self.peak_rel_height = 0.5
+        if not hasattr(self, 'peak_min_width'):
+            self.peak_min_width = 5
+        if not hasattr(self, 'peak_prominence'):
+            self.peak_prominence = 0.1
 
-        peak_ranges = self.find_peak_ranges(radial, self.speed_distribution, threshold=0.5, rel_height=0.5, min_width=5,
-                                            prominence_min=0.1)
-
-        if self.display_in_energy.get():
-            x_coords = [self._pixel_to_energy(r) for r in radial]
-            xlabel = "Energy (cm^-1)"
-        else:
-            x_coords = radial
-            xlabel = "Radial (pixels)"
-
-        for i, (left, right) in enumerate(peak_ranges):
-            ax.axvspan(left, right, alpha=0.2, color=f'C{i}')
-            if self.display_in_energy.get():
-                center_pixel = (left + right) / 2
-                center = self._pixel_to_energy(center_pixel)
-            else:
-                center = (left + right) / 2
-            ax.annotate(f"Peak {i + 1}", (center, ax.get_ylim()[1]), ha='center')
-            print(f"Peak {i + 1}", center)
-            print(f"Peak {i + 1}", left, right)
-            self.text_box.insert(tk.END, f"Peak {i + 1} {center}\n")
-            self.update_text(f"Peak {i + 1} {center}\n", clear_first=False)
-
-        ax.plot(x_coords, self.speed_distribution)
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel("Speed distribution (arb. units)")
-        ax.set_title("Speed Distribution")
-
-        self.canvas.draw()
+        # Update the plot
+        self._update_speed_plot()
 
     # Anisotropy
     def _anisotropy(self):
@@ -1157,6 +1146,56 @@ class MainGUI(tk.Tk):
         except ValueError:
             pass
 
+    def _peak_slider_changed(self, param_name, value):
+        # Handle changes to peak finding parameter sliders
+        value = float(value)
+
+        # Update corresponding entry
+        if param_name == 'threshold':
+            self.threshold_entry.delete(0, tk.END)
+            self.threshold_entry.insert(0, f"{value:.2f}")
+            self.peak_threshold = value
+        elif param_name == 'rel_height':
+            self.rel_height_entry.delete(0, tk.END)
+            self.rel_height_entry.insert(0, f"{value:.2f}")
+            self.peak_rel_height = value
+        elif param_name == 'min_width':
+            self.min_width_entry.delete(0, tk.END)
+            self.min_width_entry.insert(0, f"{int(value)}")
+            self.peak_min_width = int(value)
+        elif param_name == 'prominence':
+            self.prominence_entry.delete(0, tk.END)
+            self.prominence_entry.insert(0, f"{value:.2f}")
+            self.peak_prominence = value
+
+        # Immediately update the plot with new parameters
+        self._update_speed_plot()
+
+    def _peak_entry_changed(self, param_name, *args):
+        # Handle changes to peak finding parameter entries
+        try:
+            if param_name == 'threshold':
+                value = float(self.threshold_entry.get())
+                self.threshold_slider.set(value)
+                self.peak_threshold = value
+            elif param_name == 'rel_height':
+                value = float(self.rel_height_entry.get())
+                self.rel_height_slider.set(value)
+                self.peak_rel_height = value
+            elif param_name == 'min_width':
+                value = int(self.min_width_entry.get())
+                self.min_width_slider.set(value)
+                self.peak_min_width = value
+            elif param_name == 'prominence':
+                value = float(self.prominence_entry.get())
+                self.prominence_slider.set(value)
+                self.peak_prominence = value
+
+            # Immediately update the plot with new parameters
+            self._update_speed_plot()
+        except ValueError:
+            pass
+
     def _update_plot(self, image=None):
         if image is None:
             image = self.IM
@@ -1171,6 +1210,58 @@ class MainGUI(tk.Tk):
         self.fig.colorbar(im)
         self.canvas.draw()
 
+    def _update_speed_plot(self):
+        # Update speed distribution plot with current peak finding parameters
+        if not hasattr(self, 'speed_distribution') or not hasattr(self, 'radial_coords'):
+            return
+
+        # Re-plot with updated parameters
+        self.fig.clf()
+        ax = self.fig.add_subplot(111)
+
+        # Use current peak parameters
+        peak_ranges = self.find_peak_ranges(
+            self.radial_coords,
+            self.speed_distribution,
+            threshold=self.peak_threshold,
+            rel_height=self.peak_rel_height,
+            min_width=self.peak_min_width,
+            prominence_min=self.peak_prominence
+        )
+
+        if self.display_in_energy.get():
+            x_coords = [self._pixel_to_energy(r) for r in self.radial_coords]
+            xlabel = "Energy (cm^-1)"
+        else:
+            x_coords = self.radial_coords
+            xlabel = "Radial (pixels)"
+
+        # Plot the speed distribution
+        ax.plot(x_coords, self.speed_distribution)
+
+        # Clear previous peak information
+        self.text_box.delete(1.0, tk.END)
+        self.update_text("Peak information:\n", clear_first=True)
+
+        # Display peak ranges
+        for i, (left, right) in enumerate(peak_ranges):
+            ax.axvspan(left, right, alpha=0.2, color=f'C{i}')
+            if self.display_in_energy.get():
+                center_pixel = (left + right) / 2
+                center = self._pixel_to_energy(center_pixel)
+                self.update_text(f"Peak {i + 1}: {center:.2f} cm^-1\n", clear_first=False)
+            else:
+                center = (left + right) / 2
+                self.update_text(f"Peak {i + 1}: {center:.2f} pixels\n", clear_first=False)
+
+            ax.annotate(f"Peak {i + 1}", (center, 0.9), ha='center', xycoords=('data', 'axes fraction'))
+
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Speed distribution (arb. units)")
+        ax.set_title("Speed Distribution")
+
+        self.canvas.draw()
+
     def update_text(self, text, clear_first=False):
         self.text_box.config(state="normal")
         if clear_first:
@@ -1182,6 +1273,79 @@ class MainGUI(tk.Tk):
     def _quit(self):
         self.quit()
         self.destroy()
+
+    # ==========================================================================
+    # Speed and Energy Settings
+    # ==========================================================================
+    def _speed_settings(self):
+        # Check if we have speed distribution data
+        if self.speed_distribution is None or self.radial_coords is None:
+            messagebox.showinfo("Information", "Please calculate speed distribution first.")
+            return
+        else:
+            settings_window = tk.Toplevel(self)
+            settings_window.title("Peak Finding Settings")
+            settings_window.geometry("400x250")
+            settings_window.transient(self)
+            settings_window.grab_set()
+
+            # Create frame for settings
+            speed_frame = tk.LabelFrame(settings_window, text="Peak Parameters", padx=10, pady=10)
+            speed_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+            # Store current settings
+            self.peak_threshold = getattr(self, 'peak_threshold', 0.5)
+            self.peak_rel_height = getattr(self, 'peak_rel_height', 0.5)
+            self.peak_min_width = getattr(self, 'peak_min_width', 5)
+            self.peak_prominence = getattr(self, 'peak_prominence', 0.1)
+
+            # Threshold row
+            tk.Label(speed_frame, text="Threshold:").grid(row=0, column=0, sticky="e", padx=5, pady=2)
+            self.threshold_entry = tk.Entry(speed_frame, width=10)
+            self.threshold_entry.grid(row=0, column=1, padx=5, pady=2)
+            self.threshold_entry.insert(0, f"{self.peak_threshold:.2f}")
+            self.threshold_slider = tk.Scale(speed_frame, from_=0, to=1.0, resolution=0.01,
+                                             orient=tk.HORIZONTAL,
+                                             command=lambda v: self._peak_slider_changed('threshold', v))
+            self.threshold_slider.set(self.peak_threshold)
+            self.threshold_slider.grid(row=0, column=2, sticky="we", padx=5, pady=2)
+            self.threshold_entry.bind('<Return>', lambda e: self._peak_entry_changed('threshold'))
+
+            # Relative height row
+            tk.Label(speed_frame, text="Rel. Height:").grid(row=1, column=0, sticky="e", padx=5, pady=2)
+            self.rel_height_entry = tk.Entry(speed_frame, width=10)
+            self.rel_height_entry.grid(row=1, column=1, padx=5, pady=2)
+            self.rel_height_entry.insert(0, f"{self.peak_rel_height:.2f}")
+            self.rel_height_slider = tk.Scale(speed_frame, from_=0, to=1.0, resolution=0.01,
+                                              orient=tk.HORIZONTAL,
+                                              command=lambda v: self._peak_slider_changed('rel_height', v))
+            self.rel_height_slider.set(self.peak_rel_height)
+            self.rel_height_slider.grid(row=1, column=2, sticky="we", padx=5, pady=2)
+            self.rel_height_entry.bind('<Return>', lambda e: self._peak_entry_changed('rel_height'))
+
+            # Min width row
+            tk.Label(speed_frame, text="Min Width:").grid(row=2, column=0, sticky="e", padx=5, pady=2)
+            self.min_width_entry = tk.Entry(speed_frame, width=10)
+            self.min_width_entry.grid(row=2, column=1, padx=5, pady=2)
+            self.min_width_entry.insert(0, f"{self.peak_min_width}")
+            self.min_width_slider = tk.Scale(speed_frame, from_=1, to=50, resolution=1,
+                                             orient=tk.HORIZONTAL,
+                                             command=lambda v: self._peak_slider_changed('min_width', v))
+            self.min_width_slider.set(self.peak_min_width)
+            self.min_width_slider.grid(row=2, column=2, sticky="we", padx=5, pady=2)
+            self.min_width_entry.bind('<Return>', lambda e: self._peak_entry_changed('min_width'))
+
+            # Prominence row
+            tk.Label(speed_frame, text="Prominence:").grid(row=3, column=0, sticky="e", padx=5, pady=2)
+            self.prominence_entry = tk.Entry(speed_frame, width=10)
+            self.prominence_entry.grid(row=3, column=1, padx=5, pady=2)
+            self.prominence_entry.insert(0, f"{self.peak_prominence:.2f}")
+            self.prominence_slider = tk.Scale(speed_frame, from_=0, to=1.0, resolution=0.01,
+                                              orient=tk.HORIZONTAL,
+                                              command=lambda v: self._peak_slider_changed('prominence', v))
+            self.prominence_slider.set(self.peak_prominence)
+            self.prominence_slider.grid(row=3, column=2, sticky="we", padx=5, pady=2)
+            self.prominence_entry.bind('<Return>', lambda e: self._peak_entry_changed('prominence'))
 
     # Energy Conversion
     def _calibration_settings(self):

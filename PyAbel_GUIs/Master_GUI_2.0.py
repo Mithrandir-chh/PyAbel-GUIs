@@ -140,7 +140,7 @@ class MainGUI(tk.Tk):
 
         # Row 1: Abel transform combo + button
         abel_btn = tk.Button(self.top_frame, text="Inverse Abel Transform",
-                             command=lambda: [self._transform(), self._image_fixer(),
+                             command=lambda: [self._transform(), self._run_conditional_image_fixer(),
                                               self._display_transformed()])
         abel_btn.grid(row=1, column=1, padx=5, pady=5)
 
@@ -583,8 +583,8 @@ class MainGUI(tk.Tk):
             self.update_text("Please transform the image first.\n", clear_first=True)
 
     def _display_transformed(self):
-        if self.fix_IM is not None and self.AIM is not None:
-            if self.fix_center_artifact.get():
+        if self.AIM is not None:
+            if self.fix_IM is not None and self.fix_center_artifact.get():
                 self.IM = self.fix_IM
                 self._update_slider_range(self.fix_IM)
                 self._update_plot()
@@ -1269,6 +1269,11 @@ class MainGUI(tk.Tk):
         self.text_box.insert(tk.END, text)
         self.text_box.see(tk.END)
         self.text_box.config(state="disabled")
+
+    def _run_conditional_image_fixer(self):
+        # Only run image fixer if the fix_center_artifact option is selected
+        if self.fix_center_artifact.get():
+            self._image_fixer()
 
     def _quit(self):
         self.quit()

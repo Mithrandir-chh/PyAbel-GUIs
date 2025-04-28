@@ -3,6 +3,7 @@ import abel
 from scipy.ndimage import shift
 from scipy.signal import find_peaks
 import matplotlib
+
 matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
@@ -134,7 +135,7 @@ class MainGUI(tk.Tk):
         # Row 1: Image fixer toggle
         self.fix_center_artifact = tk.BooleanVar()
         fixer_toggle = tk.Checkbutton(self.top_frame, text="Fix Center Artifact",
-                                       variable=self.fix_center_artifact)
+                                      variable=self.fix_center_artifact)
         fixer_toggle.grid(row=1, column=1, padx=5, pady=5)
 
         # Row 1: Abel transform combo + button
@@ -238,20 +239,24 @@ class MainGUI(tk.Tk):
         anisotropy_btn.grid(row=0, column=0, columnspan=3, padx=5, pady=5, sticky="w")
 
         # R range
-        tk.Label(range_frame, text="Px Range:").grid(row=1, column=0, padx=5, pady=2)
+        self.r_range_left_label = tk.Label(range_frame, text="Px Range:")
+        self.r_range_left_label.grid(row=1, column=0, padx=5, pady=2)
         self.rmin = tk.Entry(range_frame, width=5)
         self.rmin.insert(0, "0")
         self.rmin.grid(row=1, column=1, padx=2, pady=2)
-        tk.Label(range_frame, text="to").grid(row=1, column=2)
+        self.r_range_right_label = (tk.Label(range_frame, text="to"))
+        self.r_range_right_label.grid(row=1, column=2)
         self.rmax = tk.Entry(range_frame, width=5)
         self.rmax.insert(0, "350")
         self.rmax.grid(row=1, column=3, padx=2, pady=2)
 
         # KE range
-        tk.Label(range_frame, text="KE Range:").grid(row=2, column=0, padx=5, pady=2)
+        self.KE_range_left_label = tk.Label(range_frame, text="KE Range:")
+        self.KE_range_left_label.grid(row=2, column=0, padx=5, pady=2)
         self.ke_min = tk.Entry(range_frame, width=8)
         self.ke_min.grid(row=2, column=1, padx=2, pady=2)
-        tk.Label(range_frame, text="to").grid(row=2, column=2)
+        self.KE_range_right_label = (tk.Label(range_frame, text="to"))
+        self.KE_range_right_label.grid(row=2, column=2)
         self.ke_max = tk.Entry(range_frame, width=8)
         self.ke_max.grid(row=2, column=3, padx=2, pady=2)
 
@@ -271,11 +276,64 @@ class MainGUI(tk.Tk):
         self.intensity_threshold_multiplier.insert(0, "1")
         self.intensity_threshold_multiplier.grid(row=4, column=2, padx=5, pady=2, sticky="w")
 
+        # New: Anisotropy fitting method
+        self.fit_methods_label = tk.Label(range_frame, text="Fit Method:")
+        self.fit_methods_label.grid(row=5, column=0, padx=5, pady=2, sticky="e")
+        self.fit_methods = ['robust', 'RANSAC']
+        self.fit_method_combo = ttk.Combobox(range_frame, values=self.fit_methods, state="readonly", width=8)
+        self.fit_method_combo.current(0)  # default to 'robust'
+        self.fit_method_combo.grid(row=5, column=1, columnspan=2, padx=2, pady=2, sticky="w")
+
+        # New: Show fit plot toggle
+        self.show_fit_plot = tk.BooleanVar(value=False)
+
+        # New: Advanced RANSAC Parameters frame
+        self.ransac_frame = tk.LabelFrame(self.control_frame, text="RANSAC Parameters")
+        self.ransac_frame.pack(fill="x", padx=5, pady=5)
+
+        # RANSAC trials
+        tk.Label(self.ransac_frame, text="Max trials:").grid(row=0, column=0, padx=5, pady=2, sticky="e")
+        self.ransac_trials = tk.Entry(self.ransac_frame, width=5)
+        self.ransac_trials.insert(0, "250")
+        self.ransac_trials.grid(row=0, column=1, padx=2, pady=2)
+
+        # RANSAC min samples
+        tk.Label(self.ransac_frame, text="Min samples:").grid(row=1, column=0, padx=5, pady=2, sticky="e")
+        self.ransac_min_samples = tk.Entry(self.ransac_frame, width=5)
+        self.ransac_min_samples.insert(0, "25")
+        self.ransac_min_samples.grid(row=1, column=1, padx=2, pady=2)
+
+        # RANSAC global threshold
+        tk.Label(self.ransac_frame, text="Global threshold:").grid(row=2, column=0, padx=5, pady=2, sticky="e")
+        self.ransac_global_thresh = tk.Entry(self.ransac_frame, width=5)
+        self.ransac_global_thresh.insert(0, "3.5")
+        self.ransac_global_thresh.grid(row=2, column=1, padx=2, pady=2)
+
+        # RANSAC special threshold
+        tk.Label(self.ransac_frame, text="Special threshold:").grid(row=3, column=0, padx=5, pady=2, sticky="e")
+        self.ransac_special_thresh = tk.Entry(self.ransac_frame, width=5)
+        self.ransac_special_thresh.insert(0, "2.0")
+        self.ransac_special_thresh.grid(row=3, column=1, padx=2, pady=2)
+
+        # Show/hide RANSAC parameters based on fitting method selection
+        self.fit_method_combo.bind("<<ComboboxSelected>>", self._toggle_ransac_frame)
+
+        # Initial state - hide RANSAC frame if not selected
+        if self.fit_method_combo.get() != 'RANSAC':
+            self.ransac_frame.pack_forget()
+
         # Bind entry events for R / KE
         self.rmin.bind('<KeyRelease>', lambda e: self._update_ke_from_r())
         self.rmax.bind('<KeyRelease>', lambda e: self._update_ke_from_r())
         self.ke_min.bind('<KeyRelease>', lambda e: self._update_r_from_ke())
         self.ke_max.bind('<KeyRelease>', lambda e: self._update_r_from_ke())
+
+    def _toggle_ransac_frame(self, event=None):
+        # Show or hide RANSAC parameters frame based on selection
+        if self.fit_method_combo.get() == 'RANSAC':
+            self.ransac_frame.pack(fill="x", padx=5, pady=5, after=self.control_frame.winfo_children()[-2])
+        else:
+            self.ransac_frame.pack_forget()
 
     # Bottom Frame Builders
     def _build_bottom_frame(self):
@@ -383,28 +441,52 @@ class MainGUI(tk.Tk):
         self.update_text(f"Inverse Abel transform: {self.inverse_method}\n", clear_first=True)
         self.text_box.insert(tk.END, "Transforming...\n")
         self.update_text("Transforming...\n", clear_first=False)
-
+        # Enable Anora method entry as default
+        self._update_button_state(self.fit_method_combo, disable=False)
+        self._update_button_state(self.fit_methods_label, disable=False)
         image_to_transform = self.centered_IM if self.centered_IM is not None else self.raw_IM
-        self.AIM = abel.Transform(
-            image_to_transform,
-            method=self.inverse_method,
-            direction="inverse",
-            symmetry_axis=None
-        )
+        if (self.transform_combo.get() == "onion_peeling"
+                or self.transform_combo.get() == "three_point"
+                or self.transform_combo.get() == "two_point"):
+            self.AIM = abel.Transform(
+                image_to_transform,
+                method=self.inverse_method,
+                direction="inverse",
+                symmetry_axis=(0, 1)
+            )
+        elif self.transform_combo.get() == "rbasex":
+            # Disable Anora method entry
+            self._update_button_state(self.fit_method_combo, disable=True)
+            self._update_button_state(self.fit_methods_label, disable=True)
+            self.AIM = abel.Transform(
+                image_to_transform,
+                method=self.inverse_method,
+                direction="inverse",
+                symmetry_axis=(0, 1),
+                transform_options={'reg': ('diff', 100)}
+            )
+        else:
+            self.AIM = abel.Transform(
+                image_to_transform,
+                method=self.inverse_method,
+                direction="inverse",
+                symmetry_axis=(0, 1),
+                transform_options={'reg': 100.0}
+            )
 
     def _image_fixer(self):
         if self.AIM is not None:
             self.IM = self.AIM.transform
             center_col = self.IM.shape[1] // 2
             center_row = self.IM.shape[0] // 2
-            artifact_width = 10
+            artifact_width = 20
 
             # Make an artifact-free image for clean mean and std
             non_artifact = np.delete(self.IM, np.s_[center_col - artifact_width:center_col + artifact_width + 1],
                                      axis=1)
             mean_intensity = np.mean(non_artifact)
             std_intensity = np.std(non_artifact)
-            threshold = mean_intensity + 15 * std_intensity
+            threshold = mean_intensity + 10 * std_intensity
 
             # Intensity mask for the whole image
             intensity_mask = self.IM > threshold
@@ -454,7 +536,7 @@ class MainGUI(tk.Tk):
                                         pixel_value = self.IM[ni, nj]
 
                                         # Only use pixels that are below the threshold
-                                        if pixel_value <= 1.5*threshold:
+                                        if pixel_value <= 1.5 * threshold:
                                             valid_neighbors.append(pixel_value)
 
                         # If nothing in initial search, then wider search
@@ -477,12 +559,12 @@ class MainGUI(tk.Tk):
 
                                         if abs(radius_n - radius_p) < radius_epsilon:
                                             pixel_value = self.IM[ni, nj]
-                                            if pixel_value <= 1.5*threshold:
+                                            if pixel_value <= 1.5 * threshold:
                                                 valid_neighbors.append(pixel_value)
 
                         # Replace pixel value with maximum of valid neighbors
                         if valid_neighbors:
-                            self.fix_IM[i, j] = np.max(valid_neighbors)
+                            self.fix_IM[i, j] = np.mean(valid_neighbors)
                         else:
                             self.fix_IM[i, j] = mean_intensity
 
@@ -573,47 +655,214 @@ class MainGUI(tk.Tk):
         if self.AIM is None:
             return
 
-        # Prepare Anora
-        if self.fix_center_artifact.get():
-            img = self.fix_IM
-        else:
-            img = self.AIM.transform
-        height, width = img.shape
-        x0, y0 = width / 2, height / 2
-        Anni = Anora(img, x0, y0)
-
-        # Inputs
+        # Get parameters from GUI
         r_min = int(self.rmin.get())
         r_max = int(self.rmax.get())
         step = int(self.step_entry.get())
         is_rolling = self.rolling_var.get()
         threshold_mult = float(self.intensity_threshold_multiplier.get())
-        r_range = [(r_min, r_max)]
 
-        # Generate r ranges
-        if is_rolling:
-            range_list = self._generate_rolling_ranges(r_range, step)
-        else:
-            range_list = self._generate_ranges(r_range, step)
-
-        # Lists for storing results
+        # Prepare data structure for results
         r_centers = []
         beta2_vals = []
         beta2_errs = []
         intensities = []
         energies = []
+        a_vals = []
+        a_errs = []
 
-        for (start_r, end_r) in range_list:
-            rng_intensity = Anni.get_average_intensity_for_range(start_r, end_r)
-            if rng_intensity > threshold_mult * Anni.avg_intensity:
-                beta2, err, *_ = Anni.calculate_beta2(start_r, end_r)
-                center = (start_r + end_r) / 2.0
-                r_centers.append(center)
-                beta2_vals.append(beta2)
-                beta2_errs.append(err)
-                intensities.append(rng_intensity)
-                # Energy
-                energies.append(self._pixel_to_energy(center))
+        # Check if using rbasex
+        if self.transform_combo.get() == "rbasex":
+            # Use Distributions.Ibeta for rbasex
+            self.text_box.insert(tk.END, "Using rbasex Ibeta method for anisotropy...\n")
+            self.update_text("Using rbasex Ibeta method for anisotropy...\n", clear_first=False)
+
+            # Get radial and beta data from distr
+            # Use step as window parameter for smoothing
+            radial, intensity, beta2 = self.AIM.distr.rIbeta(window=step)
+
+            # Filter by radius range
+            mask = (radial >= r_min) & (radial <= r_max)
+
+            # Get the average intensity for the full radius range
+            # for threshold calculation
+            avg_intensity = np.mean(intensity)
+            self.avg_intensity = avg_intensity
+
+            if is_rolling:
+                # For rolling, we use all points in the range
+                filtered_radii = radial[mask]
+                filtered_beta2 = beta2[mask]
+                filtered_intensity = intensity[mask]
+                self.r_range_method = 'Rolling'
+                self.anni_stepsize = step
+
+                # Store all data points
+                for i, r in enumerate(filtered_radii):
+                    if filtered_intensity[i] > threshold_mult * self.avg_intensity:
+                        r_centers.append(r)
+                        beta2_vals.append(filtered_beta2[i])
+                        beta2_errs.append(0.0)  # No error calculation in rbasex method
+                        intensities.append(filtered_intensity[i])
+                        energies.append(self._pixel_to_energy(r))
+                        a_vals.append(0.0)  # Not provided by rbasex
+                        a_errs.append(0.0)  # Not provided by rbasex
+            else:
+                # For non-rolling, we use steps
+                self.r_range_method = 'Non-Rolling'
+                self.anni_stepsize = step
+                for r_start in range(r_min, r_max, step):
+                    r_end = min(r_start + step, r_max)
+                    r_center = (r_start + r_end) / 2.0
+
+                    # Find indices in the range
+                    range_mask = (radial >= r_start) & (radial <= r_end)
+                    if not np.any(range_mask):
+                        continue
+
+                    # Calculate average intensity and beta in the range
+                    range_intensity = np.mean(intensity[range_mask])
+                    if range_intensity > threshold_mult * self.avg_intensity:
+                        range_beta = np.mean(beta2[range_mask])
+
+                        r_centers.append(r_center)
+                        beta2_vals.append(range_beta)
+                        beta2_errs.append(0.0)  # No error calculation in rbasex
+                        intensities.append(range_intensity)
+                        energies.append(self._pixel_to_energy(r_center))
+                        a_vals.append(0.0)  # Not provided by rbasex
+                        a_errs.append(0.0)  # Not provided by rbasex
+        else:
+            # Use Anora for other transform algorithms
+            # Prepare Anora
+            if self.fix_center_artifact.get():
+                img = self.fix_IM
+            else:
+                img = self.AIM.transform
+            height, width = img.shape
+            x0, y0 = width / 2, height / 2
+            Anni = Anora(img, x0, y0)
+
+            # Inputs
+            r_range = [(r_min, r_max)]
+
+            # Get fitting method parameters
+            fit_method = self.fit_method_combo.get()
+            show_fit = self.show_fit_plot.get()
+
+            # RANSAC parameters if needed
+            if fit_method == 'RANSAC':
+                ransac_trials = int(self.ransac_trials.get())
+                ransac_min_samples = int(self.ransac_min_samples.get())
+                ransac_global_thresh = float(self.ransac_global_thresh.get())
+                ransac_special_thresh = float(self.ransac_special_thresh.get())
+            else:
+                # Default values if not using RANSAC
+                ransac_trials = 250
+                ransac_min_samples = 25
+                ransac_global_thresh = 3.5
+                ransac_special_thresh = 2.0
+
+            # Generate r ranges
+            if is_rolling:
+                range_list = self._generate_rolling_ranges(r_range, step)
+            else:
+                range_list = self._generate_ranges(r_range, step)
+
+            # Lists for storing results for fit plots
+            theta_data = []
+            w_theta_data = []
+            theta_fit_data = []
+            w_fit_data = []
+            inliers_data = []
+
+            # Get average intensity for entire image
+            self.avg_intensity = np.mean(img)
+
+            # Calculate initial intensity for the entire range
+            rough_range_intensity = self.get_average_intensity_for_range(Anni, r_min, r_max)
+
+            for (start_r, end_r) in range_list:
+                rng_intensity = self.get_average_intensity_for_range(Anni, start_r, end_r)
+                if rng_intensity > threshold_mult * self.avg_intensity:
+                    # Call the updated calculate_beta2 method with appropriate parameters
+                    result = Anni.calculate_beta2(
+                        start_r, end_r,
+                        method=fit_method,
+                        RANSAC_trials=ransac_trials,
+                        RANSAC_min_samples=ransac_min_samples,
+                        RANSAC_global_thresh=ransac_global_thresh,
+                        RANSAC_special_thresh=ransac_special_thresh,
+                        show=False
+                    )
+
+                    # Extract results from the dictionary returned by calculate_beta2
+                    (a_fit, a_err) = result["A"]
+                    (beta2_fit, beta2_err) = result["beta2"]
+
+                    # Store all data
+                    center = (start_r + end_r) / 2.0
+                    r_centers.append(center)
+                    beta2_vals.append(beta2_fit)
+                    beta2_errs.append(beta2_err)
+                    a_vals.append(a_fit)
+                    a_errs.append(a_err)
+                    intensities.append(rng_intensity)
+                    # Energy
+                    energies.append(self._pixel_to_energy(center))
+
+                    # Store angular distribution data for potential plotting
+                    theta_data.append(result["theta_deg"])
+                    w_theta_data.append(result["W_theta"])
+                    theta_fit_data.append(result["theta_fit_deg"])
+                    w_fit_data.append(result["W_fit"])
+                    inliers_data.append(result["inliers"])
+
+            # Show fit plot if requested (for Anora only) not really relevant in this version
+            if show_fit and r_centers and not self.transform_combo.get() == 'rbasex':
+                # Get the index of the max intensity
+                max_idx = intensities.index(max(intensities))
+
+                # Create a new window for the fit plot
+                fit_window = tk.Toplevel(self)
+                fit_window.title("Angular Distribution Fit")
+                fit_window.geometry("800x600")
+
+                # Create the figure and canvas for the fit plot
+                fit_fig = Figure(figsize=(8, 6), dpi=100)
+                fit_ax = fit_fig.add_subplot(111)
+
+                # Plot the data and fit
+                fit_ax.plot(theta_data[max_idx], w_theta_data[max_idx], "o", ms=5, alpha=0.6, label="data (norm.)")
+                fit_ax.plot(theta_fit_data[max_idx], w_fit_data[max_idx], "-", lw=2, label="fit (norm.)")
+
+                # Highlight inliers if using RANSAC
+                if fit_method == 'RANSAC':
+                    fit_ax.scatter(
+                        np.array(theta_data[max_idx])[inliers_data[max_idx]],
+                        np.array(w_theta_data[max_idx])[inliers_data[max_idx]],
+                        s=70, facecolors="none", edgecolors="lime", linewidths=1.4, label="inliers"
+                    )
+
+                # Set labels and title
+                fit_ax.set_xlabel("θ (deg)")
+                fit_ax.set_ylabel("probability per bin")
+                r_center = r_centers[max_idx]
+                fit_ax.set_title(
+                    f"r = {r_center:.1f} px  |  β₂ = {beta2_vals[max_idx]:.3f} ± {beta2_errs[max_idx]:.3f}  |  A = {a_vals[max_idx]:.3g}"
+                )
+                fit_ax.grid(alpha=0.25)
+                fit_ax.legend(framealpha=0.9)
+
+                # Create and pack the canvas
+                fit_canvas = FigureCanvasTkAgg(fit_fig, master=fit_window)
+                fit_canvas.draw()
+                fit_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+                # Add a navigation toolbar
+                fit_toolbar = NavigationToolbar2Tk(fit_canvas, fit_window)
+                fit_toolbar.update()
+                fit_canvas._tkcanvas.pack(fill=tk.BOTH, expand=True)
 
         # Plot results
         self.fig.clf()
@@ -626,7 +875,12 @@ class MainGUI(tk.Tk):
             x_vals = r_centers
             xlabel = "Radial Center (pixels)"
 
-        ax.errorbar(x_vals, beta2_vals, yerr=beta2_errs, fmt='o-', capsize=5)
+        # For rbasex, no error bars
+        if self.transform_combo.get() == 'rbasex':
+            ax.plot(x_vals, beta2_vals, 'o-')
+        else:
+            ax.errorbar(x_vals, beta2_vals, yerr=beta2_errs, fmt='o-', capsize=5)
+
         ax.set_xlabel(xlabel)
         ax.set_ylabel("Anisotropy Parameter β₂")
         ax.set_title(f"Anisotropy (step={step}, rolling={is_rolling})")
@@ -635,30 +889,78 @@ class MainGUI(tk.Tk):
 
         # Show results in the text box
         self.text_box.delete(1.0, tk.END)
-        self.text_box.insert(tk.END, f"Average image intensity: {Anni.avg_intensity:.4f}\n")
-        self.update_text(f"Average image intensity: {Anni.avg_intensity:.4f}\n", clear_first=True)
+
+        if self.transform_combo.get() == 'rbasex':
+            self.text_box.insert(tk.END, f"Average intensity: {self.avg_intensity:.4f}\n")
+            self.update_text(f"Average intensity: {self.avg_intensity:.4f}\n", clear_first=True)
+        else:
+            self.text_box.insert(tk.END, f"Average image intensity: {self.avg_intensity:.4f}\n")
+            self.update_text(f"Average image intensity: {self.avg_intensity:.4f}\n", clear_first=True)
+            self.text_box.insert(tk.END, f"Average rough range intensity: {rough_range_intensity:.4f}\n")
+            self.update_text(f"Average rough range intensity: {rough_range_intensity:.4f}\n", clear_first=False)
+
         self.text_box.insert(tk.END, "Results for radial slices above threshold:\n")
         self.update_text("Results for radial slices above threshold:\n", clear_first=False)
-        if self.display_in_energy.get():
-            self.text_box.insert(tk.END, "Energy (cm^-1)\tβ₂\tError\tIntensity\n")
-            self.update_text("Energy (cm^-1)\tβ₂\tError\tIntensity\n", clear_first=False)
-            for rC, b2, e2, Ival in zip(r_centers, beta2_vals, beta2_errs, intensities):
-                E = self._pixel_to_energy(rC)
-                self.text_box.insert(tk.END, f"{E:.1f}\t{b2:.4f}\t{e2:.4f}\t{Ival:.4f}\n")
-                self.update_text(f"{E:.1f}\t{b2:.4f}\t{e2:.4f}\t{Ival:.4f}\n", clear_first=False)
-        else:
-            self.text_box.insert(tk.END, "Radial px\tβ₂\tError\tIntensity\n")
-            self.update_text("Radial px\tβ₂\tError\tIntensity\n", clear_first=False)
-            for rC, b2, e2, Ival in zip(r_centers, beta2_vals, beta2_errs, intensities):
-                self.update_text(f"{rC:.1f}\t{b2:.4f}\t{e2:.4f}\t{Ival:.4f}\n", clear_first=False)
 
-            # Save data dictionary for potential saving
+        if self.display_in_energy.get():
+            # With errors for non-rbasex methods
+            if self.transform_combo.get() == 'rbasex':
+                self.text_box.insert(tk.END, "Energy (cm^-1)\tβ₂\tIntensity\n")
+                self.update_text("Energy (cm^-1)\tβ₂\tIntensity\n", clear_first=False)
+                for i, rC in enumerate(r_centers):
+                    E = self._pixel_to_energy(rC)
+                    self.text_box.insert(tk.END,
+                                         f"{E:.1f}\t{beta2_vals[i]:.4f}\t{intensities[i]:.4f}\n")
+                    self.update_text(
+                        f"{E:.1f}\t{beta2_vals[i]:.4f}\t{intensities[i]:.4f}\n",
+                        clear_first=False)
+            else:
+                self.text_box.insert(tk.END, "Energy (cm^-1)\tβ₂\tError\tIntensity\tA\tA Error\n")
+                self.update_text("Energy (cm^-1)\tβ₂\tError\tIntensity\tA\tA Error\n", clear_first=False)
+                for i, rC in enumerate(r_centers):
+                    E = self._pixel_to_energy(rC)
+                    self.text_box.insert(tk.END,
+                                         f"{E:.1f}\t{beta2_vals[i]:.4f}\t{beta2_errs[i]:.4f}\t{intensities[i]:.4f}\t{a_vals[i]:.4f}\t{a_errs[i]:.4f}\n")
+                    self.update_text(
+                        f"{E:.1f}\t{beta2_vals[i]:.4f}\t{beta2_errs[i]:.4f}\t{intensities[i]:.4f}\t{a_vals[i]:.4f}\t{a_errs[i]:.4f}\n",
+                        clear_first=False)
+        else:
+            if self.transform_combo.get() == 'rbasex':
+                self.text_box.insert(tk.END, "Radial px\tβ₂\tIntensity\n")
+                self.update_text("Radial px\tβ₂\tIntensity\n", clear_first=False)
+                for i, rC in enumerate(r_centers):
+                    self.text_box.insert(tk.END,
+                                         f"{rC:.1f}\t{beta2_vals[i]:.4f}\t{intensities[i]:.4f}\n")
+                    self.update_text(
+                        f"{rC:.1f}\t{beta2_vals[i]:.4f}\t{intensities[i]:.4f}\n",
+                        clear_first=False)
+            else:
+                self.text_box.insert(tk.END, "Radial px\tβ₂\tError\tIntensity\tA\tA Error\n")
+                self.update_text("Radial px\tβ₂\tError\tIntensity\tA\tA Error\n", clear_first=False)
+                for i, rC in enumerate(r_centers):
+                    self.text_box.insert(tk.END,
+                                         f"{rC:.1f}\t{beta2_vals[i]:.4f}\t{beta2_errs[i]:.4f}\t{intensities[i]:.4f}\t{a_vals[i]:.4f}\t{a_errs[i]:.4f}\n")
+                    self.update_text(
+                        f"{rC:.1f}\t{beta2_vals[i]:.4f}\t{beta2_errs[i]:.4f}\t{intensities[i]:.4f}\t{a_vals[i]:.4f}\t{a_errs[i]:.4f}\n",
+                        clear_first=False)
+
+        # Save data dictionary for saving
+        if self.transform_combo.get() == 'rbasex':
+            method_name = 'rbasex-Ibeta'
+        else:
+            method_name = fit_method
+
         self.anisotropy_data = {
             'r_centers': r_centers,
             'beta2_values': beta2_vals,
             'beta2_errors': beta2_errs,
+            'a_values': a_vals,
+            'a_errors': a_errs,
             'intensities': intensities,
-            'energies': energies
+            'energies': energies,
+            'fit_method': method_name,
+            'rolling': is_rolling,
+            'step_size': step
         }
 
         # Create save popup
@@ -731,6 +1033,10 @@ class MainGUI(tk.Tk):
                 current += 1
         return result
 
+    def get_average_intensity_for_range(self, Anni, r_min, r_max):
+        # Get average intensity for a range using the Anora
+        return Anni.average_intensity(r_min, r_max)
+
     def _create_save_popup(self, data_dict):
         popup = tk.Toplevel(self)
         popup.title("Save Data")
@@ -759,11 +1065,21 @@ class MainGUI(tk.Tk):
                 # Write header with appropriate inverse abel method, anisotropy method, and units
                 f.write(
                     f"Inverse Abel by {self.inverse_method}, {self.r_range_method} Anisotropy with step size of {self.anni_stepsize} pixels\n")
-                f.write("# Pixel_Center\t# Energy(cm-1)\tBeta2\tBeta2_Error\tIntensity\n")
-                for i in range(len(data_dict['r_centers'])):
-                    f.write(
-                        f"{data_dict['r_centers'][i]:.1f}\t{data_dict['energies'][i]:.1f}\t{data_dict['beta2_values'][i]:.4f}\t"
-                        f"{data_dict['beta2_errors'][i]:.4f}\t{data_dict['intensities'][i]:.4f}\n")
+                f.write(f"Fitting method: {data_dict['fit_method']}\n")
+
+                # Different headers for rbasex vs Anora
+                if 'rbasex' in data_dict['fit_method']:
+                    f.write(f"# Pixel_Center\t# Energy(cm-1)\tBeta2\tIntensity\n")
+                    for i in range(len(data_dict['r_centers'])):
+                        f.write(
+                            f"{data_dict['r_centers'][i]:.1f}\t{data_dict['energies'][i]:.1f}\t{data_dict['beta2_values'][i]:.4f}\t"
+                            f"{data_dict['intensities'][i]:.4f}\n")
+                else:
+                    f.write(f"# Pixel_Center\t# Energy(cm-1)\tBeta2\tBeta2_Error\tIntensity\n")
+                    for i in range(len(data_dict['r_centers'])):
+                        f.write(
+                            f"{data_dict['r_centers'][i]:.1f}\t{data_dict['energies'][i]:.1f}\t{data_dict['beta2_values'][i]:.4f}\t"
+                            f"{data_dict['beta2_errors'][i]:.4f}\t{data_dict['intensities'][i]:.4f}\n")
         popup.destroy()
 
     def _save_current_image_data(self):
@@ -782,6 +1098,12 @@ class MainGUI(tk.Tk):
                 self.update_text(f"Image data saved to {file_path}\n", clear_first=False)
             except Exception as e:
                 self.update_text(f"Error saving image data: {str(e)}\n", clear_first=False)
+
+    def _update_button_state(self, button, disable=True):
+        if disable:
+            button.configure(state=tk.DISABLED, foreground='#808080')
+        else:
+            button.configure(state=tk.NORMAL, foreground='black')
 
     def _update_slider_range(self, data):
         if self.fix_center_artifact.get():
@@ -952,6 +1274,7 @@ class MainGUI(tk.Tk):
             self.rmax.insert(0, f"{r_max_val:.0f}")
         except ValueError:
             pass
+
 
 # Main
 if __name__ == "__main__":

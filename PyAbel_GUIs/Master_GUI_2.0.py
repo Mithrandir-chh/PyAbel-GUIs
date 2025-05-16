@@ -1,3 +1,8 @@
+import sys
+import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+sys.path.append(parent_dir)
 import numpy as np
 import abel
 from scipy.ndimage import shift
@@ -346,12 +351,27 @@ class MainGUI(tk.Tk):
         self.text_box = tk.Text(self.bottom_frame, height=5, fg="blue")
         self.text_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        quit_btn = tk.Button(self.bottom_frame, text="Quit", command=self._quit)
-        quit_btn.pack(side=tk.RIGHT, padx=10, pady=10)
+        # Create a frame on the right side of the text display
+        right_side_frame = tk.Frame(self.bottom_frame)
+        right_side_frame.pack(side=tk.RIGHT, padx=10, pady=10)
 
-        save_data_btn = tk.Button(self.bottom_frame, text="Save",
+        # Button row
+        button_row = tk.Frame(right_side_frame)
+        button_row.pack(side=tk.TOP)
+
+        save_data_btn = tk.Button(button_row, text="Save",
                                   command=self._save_current_image_data)
-        save_data_btn.pack(side=tk.RIGHT, padx=10, pady=10)
+        save_data_btn.pack(side=tk.LEFT, padx=5)
+
+        quit_btn = tk.Button(button_row, text="Quit", command=self._quit)
+        quit_btn.pack(side=tk.LEFT, padx=5)
+
+        # Version row
+        version_row = tk.Frame(right_side_frame)
+        version_row.pack(side=tk.TOP, pady=(5, 0))
+
+        version_label = tk.Label(version_row, text="ver 2.1.02", foreground='#808080')
+        version_label.pack()
 
         # Initial text
         self.update_text("To start, load an image data file.\n", clear_first=True)
@@ -467,6 +487,8 @@ class MainGUI(tk.Tk):
             # Disable Anora method entry
             self._update_button_state(self.fit_method_combo, disable=True)
             self._update_button_state(self.fit_methods_label, disable=True)
+            self.fit_method_combo.current(0)
+            self.ransac_frame.pack_forget()
             self.AIM = abel.Transform(
                 image_to_transform,
                 method=self.inverse_method,
@@ -621,6 +643,14 @@ class MainGUI(tk.Tk):
         self.speed_distribution = speed / speed.max()
         self.radial_coords = radial
 
+        # Store radial coordinates and speed
+        self.speed_data = {
+            'radial_coords': self.radial_coords,
+            'speed_distribution': self.speed_distribution,
+            'energies': [self._pixel_to_energy(r) for r in self.radial_coords],
+            'transform_method': self.inverse_method
+        }
+
         # Initialize peak finding parameters if not already set
         if not hasattr(self, 'peak_threshold'):
             self.peak_threshold = 0.5
@@ -633,6 +663,11 @@ class MainGUI(tk.Tk):
 
         # Update the plot
         self._update_speed_plot()
+
+        # Add a button for saving speed distribution data
+        save_speed_button = tk.Button(self.plot_frame, text="Save Speed Distribution",
+                                      command=self._save_speed_data)
+        save_speed_button.pack(side=tk.BOTTOM, padx=5, pady=5)
 
     # Anisotropy
     def _anisotropy(self):
@@ -952,7 +987,7 @@ class MainGUI(tk.Tk):
         }
 
         # Create save popup
-        self._create_save_popup(self.anisotropy_data)
+        self._create_save_anisotropy_popup(self.anisotropy_data)
 
     # ==========================================================================
     # Utilities
@@ -1025,7 +1060,32 @@ class MainGUI(tk.Tk):
         # Get average intensity for a range using the Anora
         return Anni.average_intensity(r_min, r_max)
 
-    def _create_save_popup(self, data_dict):
+    def _save_speed_data(self):
+        if not hasattr(self, 'speed_distribution') or not hasattr(self, 'radial_coords'):
+            messagebox.showinfo("Information", "Please calculate speed distribution first.")
+            return
+
+        file_path = filedialog.asksaveasfilename(
+            defaultextension='.txt',
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
+        )
+
+        if file_path:
+            with open(file_path, 'w') as f:
+                # Write header
+                f.write(f"Speed Distribution Data - Inverse Abel by {self.inverse_method}\n")
+                f.write(f"# Pixel_Center\tEnergy(cm-1)\tSpeed_Distribution\n")
+
+                # Write data
+                energies = [self._pixel_to_energy(r) for r in self.radial_coords]
+                for i in range(len(self.radial_coords)):
+                    f.write(
+                        f"{self.radial_coords[i]:.1f}\t{energies[i]:.1f}\t"
+                        f"{self.speed_distribution[i]:.6f}\n")
+
+            self.update_text(f"Speed distribution data saved to {file_path}\n", clear_first=False)
+
+    def _create_save_anisotropy_popup(self, data_dict):
         popup = tk.Toplevel(self)
         popup.title("Save Data")
         popup.geometry("300x150")
@@ -1039,11 +1099,11 @@ class MainGUI(tk.Tk):
         button_frame.pack(pady=20)
 
         tk.Button(button_frame, text="Yes",
-                  command=lambda: self._save_data(data_dict, popup)).pack(side=tk.LEFT, padx=10)
+                  command=lambda: self._save_anni_data(data_dict, popup)).pack(side=tk.LEFT, padx=10)
         tk.Button(button_frame, text="No",
                   command=popup.destroy).pack(side=tk.LEFT, padx=10)
 
-    def _save_data(self, data_dict, popup):
+    def _save_anni_data(self, data_dict, popup):
         file_path = filedialog.asksaveasfilename(
             defaultextension='.txt',
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
@@ -1088,10 +1148,18 @@ class MainGUI(tk.Tk):
                 self.update_text(f"Error saving image data: {str(e)}\n", clear_first=False)
 
     def _update_button_state(self, button, disable=True):
-        if disable:
-            button.configure(state=tk.DISABLED, foreground='#808080')
+        if isinstance(button, ttk.Combobox):
+            # For Combobox
+            if disable:
+                button.configure(state='disabled', foreground='#808080')
+            else:
+                button.configure(state='readonly', foreground='black')
         else:
-            button.configure(state=tk.NORMAL, foreground='black')
+            # For other widgets like Labels, Buttons, etc.
+            if disable:
+                button.configure(state=tk.DISABLED, foreground='#808080')
+            else:
+                button.configure(state=tk.NORMAL, foreground='black')
 
     def _update_slider_range(self, data):
         if self.fix_center_artifact.get():

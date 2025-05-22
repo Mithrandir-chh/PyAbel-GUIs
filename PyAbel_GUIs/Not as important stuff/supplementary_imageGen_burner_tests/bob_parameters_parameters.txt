@@ -1,0 +1,84 @@
+Image Size: 800x800
+Noise Level: 1.0
+
+Peak Parameters:
+
+Peak 1:
+  Radius (pixels): 200.0
+  Intensity: 200.0
+  Beta2: 2.0
+  Width (pixels): 10.0
+
+Peak 2:
+  Radius (pixels): 300.0
+  Intensity: 300.0
+  Beta2: 0.0
+  Width (pixels): 10.0
+
+Peak 3:
+  Radius (pixels): 100.0
+  Intensity: 100.0
+  Beta2: 1.5
+  Width (pixels): 15.0
+
+Peak 4:
+  Radius (pixels): 320.0
+  Intensity: 400.0
+  Beta2: 2.0
+  Width (pixels): 20.0
+
+Peak 5:
+  Radius (pixels): 270.0
+  Intensity: 300.0
+  Beta2: -1.0
+  Width (pixels): 15.0
+
+Peak 6:
+  Radius (pixels): 260.0
+  Intensity: 300.0
+  Beta2: -1.0
+  Width (pixels): 15.0
+
+Peak 7:
+  Radius (pixels): 250.0
+  Intensity: 300.0
+  Beta2: -1.0
+  Width (pixels): 15.0
+
+Peak 8:
+  Radius (pixels): 20.0
+  Intensity: 10.0
+  Beta2: -1.0
+  Width (pixels): 15.0
+
+Peak 9:
+  Radius (pixels): 240.0
+  Intensity: 300.0
+  Beta2: -1.0
+  Width (pixels): 15.0
+
+Peak 10:
+  Radius (pixels): 170.0
+  Intensity: 300.0
+  Beta2: -1.0
+  Width (pixels): 15.0
+
+Peak 11:
+  Radius (pixels): 380.0
+  Intensity: 300.0
+  Beta2: -1.0
+  Width (pixels): 15.0
+
+Add Peak Commands
+
+add 200.0 200.0 2.0 10.0
+add 300.0 300.0 0.0 10.0
+add 100.0 100.0 1.5 15.0
+add 320.0 400.0 2.0 20.0
+add 270.0 300.0 -1.0 15.0
+add 260.0 300.0 -1.0 15.0
+add 250.0 300.0 -1.0 15.0
+add 20.0 10.0 -1.0 15.0
+add 240.0 300.0 -1.0 15.0
+add 170.0 300.0 -1.0 15.0
+add 380.0 300.0 -1.0 15.0

@@ -1,0 +1,14 @@
+Image Size: 800x800
+Noise Level: 1.0
+
+Peak Parameters:
+
+Peak 1:
+  Radius (pixels): 200.0
+  Intensity: 200.0
+  Beta2: 1.0
+  Width (pixels): 10.0
+
+Add Peak Commands
+
+add 200.0 200.0 1.0 10.0

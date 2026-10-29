@@ -14,8 +14,12 @@ examples/*.dat
 *.egg-info/
 dist/
 build/
+.build/
 doc/_build/
 doc/transform_methods/comparison/fig_benchmarks/working
+
+# editor settings
+.vscode/
 
 # macOS system files
 .DS_Store

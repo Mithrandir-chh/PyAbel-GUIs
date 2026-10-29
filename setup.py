@@ -55,6 +55,22 @@ if _cython_installed:  # if Cython is installed, we will try to build direct-C
 
         def build_extensions(self):
             """Try to build the direct-C extension."""
+            # Some macOS Conda Python builds repeat identical ``-rpath``
+            # arguments in their sysconfig linker command. Modern dyld rejects
+            # extensions containing duplicate LC_RPATH load commands, so keep
+            # only the first copy before linking.
+            if sys.platform == 'darwin':
+                linker_so = getattr(self.compiler, 'linker_so', None)
+                if linker_so:
+                    seen_rpaths = set()
+                    cleaned_linker = []
+                    for argument in linker_so:
+                        if argument.startswith('-Wl,-rpath,'):
+                            if argument in seen_rpaths:
+                                continue
+                            seen_rpaths.add(argument)
+                        cleaned_linker.append(argument)
+                    self.compiler.linker_so = cleaned_linker
             try:
                 build_ext.build_extensions(self)
             except ext_errors:
@@ -97,7 +113,7 @@ with open('README.rst') as file:
 
 # but remove CI badges
 long_description = re.sub(
-    r'^.+?https://(travis-ci\.com|ci\.appveyor\.com)/.+?\n', '',
+    r'^.+?https://(github\.com/.+/pytest.yml|ci\.appveyor\.com/).*?\n', '',
     long_description, flags=re.MULTILINE,
     count=4)  # limit to top 2 pairs of image + target
 

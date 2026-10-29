@@ -1,0 +1,18 @@
+# Runtime libraries, matching the validated macOS build environment.
+numpy==1.26.4
+scipy==1.11.4
+matplotlib==3.8.0
+pillow==10.3.0
+contourpy==1.2.0
+cycler==0.11.0
+fonttools==4.25.0
+kiwisolver==1.4.4
+pyparsing==3.0.9
+python-dateutil==2.8.2
+six==1.16.0
+# Build tools
+Cython==3.3.0
+packaging==26.3
+pyinstaller==6.22.2
+pyinstaller-hooks-contrib==2026.7
+altgraph==0.17.5

@@ -3,6 +3,34 @@ Changelog
 
 Unreleased
 ----------
+* Added Nestor–Olsen transform method (upstream PR #421).
+* Image Generator can export the synthetic distribution as a 3D STL model.
+  The generated image is the central slice of a cylindrically symmetric 3D
+  distribution, so the peak model is re-evaluated in three dimensions to
+  rebuild the Newton sphere it represents. The model is a cloud of small
+  spheres drawn from the distribution as a probability density, so dot spacing
+  carries the intensity everywhere rather than showing a single level. Points
+  are sampled directly in spherical coordinates and therefore sit on no grid.
+* The dot cloud can be written as instanced glTF (``.glb``) as well as STL.
+  STL has no way to reuse geometry, so it repeats every sphere in full and its
+  size is the dot count times the facet count. glTF stores the sphere once and
+  gives each dot a node that refers to it, which makes the facet count nearly
+  free: 10000 dots of 320 triangles each are 0.56 MB as glTF against 160 MB as
+  STL. Every dot is a child of one named root node, so the cloud opens as a
+  single selectable object with the dots identified individually beneath it.
+* Exported models carry a physical size, set in millimetres per pixel and
+  defaulting to 0.1, so a 490 px distribution becomes a 49 mm object. STL is
+  written in millimetres, which is how slicers read it, and glTF in metres, as
+  its specification requires, so both open at the same real-world size.
+* The Image Generator's 3D export now writes glTF (``.glb``) only, and is sized
+  by the diameter of the whole sphere instead of millimetres per pixel. The
+  sphere's edge is taken as three widths past the outermost peak, and the pixel
+  scale follows from it, so every export opens at the same size whatever its
+  peaks. The default of 48.7 mm matches the reference model TestPrint.glb.
+* Both PyAbel Studio control panels scroll, by scrollbar, mouse wheel or
+  trackpad, so every control stays reachable in a short window. The Windows
+  build now waits for its packaged self-tests and fails when one does.
+
 * Minor updates for compatibility with recent Python, NumPy, SciPy and
   Matplotlib versions (PR #373, #378).
 * Various documentation updates, corrections and improvements.
@@ -13,6 +41,8 @@ Unreleased
 * New option "mode" for tools.vmi.anisotropy_parameter() to control its
   behavior when beta is outside the physical range. For consistency,
   radial_integration() now also accepts theta_ranges and mode (PR #394).
+* Building and publishing AMD64 and ARM64 wheels for Linux, macOS, and Windows
+  (PR #395, #403).
 
 v0.9.0 (2022-12-14)
 -------------------

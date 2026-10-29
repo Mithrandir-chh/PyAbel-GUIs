@@ -13,11 +13,15 @@ class Anora:
                - x0, y0: Coordinates of the image center. If None, defaults to the center of the image.
                """
         self.image = np.asarray(image, dtype=float)
+        if self.image.ndim != 2:
+            raise ValueError("image must be a two-dimensional array")
+        if not np.all(np.isfinite(self.image)):
+            raise ValueError("image contains NaN or infinite values")
         self.height, self.width = self.image.shape
-        self.x0 = x0 if x0 is not None else self.width / 2
-        self.y0 = y0 if y0 is not None else self.height / 2
-        self.lower_bound = -10
-        self.upper_bound = 20
+        self.x0 = x0 if x0 is not None else (self.width - 1) / 2
+        self.y0 = y0 if y0 is not None else (self.height - 1) / 2
+        self.lower_bound = -1.0
+        self.upper_bound = 2.0
         self.tot_average_intensity = np.mean(self.image)
 
     # Utilities
@@ -39,8 +43,10 @@ class Anora:
                 - normalize: If True, normalize the intensity.
 
                 Return (θ_rad, counts, σ) for annulus; counts may be normalized."""
-        if r_min >= r_max:
-            raise ValueError("r_min must be < r_max")
+        if r_min > r_max:
+            raise ValueError("r_min must be <= r_max")
+        if r_min < 0:
+            raise ValueError("r_min must be nonnegative")
         if num_theta_bins < 4:
             raise ValueError("need at least 4 angular bins")
 
@@ -54,16 +60,18 @@ class Anora:
         counts = values.reshape(TH.shape).sum(axis=1)
         sigma = self._poisson_sigma(counts)
 
-        if normalize and counts.sum() > 0:
-            counts = counts / counts.sum()
-            sigma = sigma / counts.sum()  # propagate same scaling
+        total = counts.sum()
+        if normalize and total > 0:
+            counts = counts / total
+            sigma = sigma / total  # propagate same scaling
         return theta, counts, sigma
 
     # Science!
     def calculate_beta2(self, r_min, r_max, *, num_theta_bins=360,
                         method="robust",  # "robust" | "RANSAC"
                         RANSAC_trials=250, RANSAC_min_samples=25,
-                        RANSAC_global_thresh=3.5, RANSAC_special_thresh=2, show=True):
+                        RANSAC_global_thresh=3.5, RANSAC_special_thresh=2,
+                        random_seed=None, show=True):
         """
         Calculate the anisotropy parameter beta2 for a given radial range.
 
@@ -76,6 +84,7 @@ class Anora:
         - RANSAC_min_samples: Starting number of samples for RANSAC. Default: 250.
         - RANSAC_global_thresh: Threshold factor to determine inliers for RANSAC. Default: 3.5
         - RANSAC_special_thresh: Threshold factor to determine inliers for RANSAC at around 90 and 270 degrees. Deflt: 2
+        - random_seed: Optional seed for reproducible RANSAC sampling.
         - show (bool): If True, show the figure.
 
         Returns:
@@ -88,6 +97,8 @@ class Anora:
         - inliers: A NumPy array of booleans indicating which data points are considered inliers during RANSAC
         """
         theta, counts, sigma = self._extract_counts(r_min, r_max, num_theta_bins, normalize=False)
+        if not np.all(np.isfinite(counts)) or counts.sum() <= 0:
+            raise ValueError("annulus has no positive finite signal")
 
         if method == "robust":
             params, cov, inliers = self._fit_robust(theta, counts, sigma)
@@ -96,7 +107,8 @@ class Anora:
                                                     trials=RANSAC_trials,
                                                     min_samples=RANSAC_min_samples,
                                                     mad_scale=RANSAC_global_thresh,
-                                                    mad_special_scale=RANSAC_special_thresh)
+                                                    mad_special_scale=RANSAC_special_thresh,
+                                                    random_seed=random_seed)
         else:
             raise ValueError("method must be 'robust' or 'RANSAC'")
 
@@ -113,7 +125,8 @@ class Anora:
         # also make a smooth curve for eye‑guidance (same scaling!)
         theta_plot = np.linspace(0.0, 2 * np.pi, 720)
         fit_pdf = self._angular_distribution(theta_plot, A_fit, beta2_fit)
-        fit_pdf /= np.trapz(fit_pdf, theta_plot)  # pdf – area = 1
+        trapezoid = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
+        fit_pdf /= trapezoid(fit_pdf, theta_plot)  # pdf – area = 1
         fit_plot = fit_pdf * bin_width  # probability per *bin*
 
         if show:
@@ -181,7 +194,9 @@ class Anora:
         cov = JTJ_inv * rss / dof
         return res.x, cov, np.ones_like(theta, dtype=bool)
 
-    def _fit_RANSAC(self, theta, counts, sigma, *, trials: int, min_samples: int, mad_scale: float, mad_special_scale):
+    def _fit_RANSAC(self, theta, counts, sigma, *, trials: int, min_samples: int,
+                    mad_scale: float, mad_special_scale: float,
+                    random_seed=None):
         """
             Fit the anisotropy with RANSAC algorithm.
             Parameters:
@@ -198,7 +213,16 @@ class Anora:
                 cov (matrix): a 2x2 covariance matrix of fitted parameters
                 best_inliers (array): a boolean array of whether the corresponding theta is an inlier (0-360)
         """
-        rng = np.random.default_rng()
+        if trials < 1:
+            raise ValueError("RANSAC trials must be at least 1")
+        if not 2 <= min_samples <= theta.size:
+            raise ValueError(
+                f"RANSAC min_samples must be between 2 and {theta.size}"
+            )
+        if mad_scale <= 0 or mad_special_scale <= 0:
+            raise ValueError("RANSAC thresholds must be positive")
+
+        rng = np.random.default_rng(random_seed)
         best_score, best_par, best_inliers = -np.inf, None, None
         bounds = ([0.0, self.lower_bound], [np.inf, self.upper_bound])
         init = [counts.mean(), 0.0]
@@ -209,7 +233,7 @@ class Anora:
             try:
                 p_sub, _ = curve_fit(self._angular_distribution, theta[subset], counts[subset],
                                      p0=init, bounds=bounds, sigma=sigma[subset], absolute_sigma=True)
-            except RuntimeError:
+            except (RuntimeError, ValueError):
                 continue
             res_abs = np.abs(self._angular_distribution(theta, *p_sub) - counts) / sigma
             mad = np.median(res_abs)
@@ -219,9 +243,6 @@ class Anora:
             # Special threshold for 90 (±5) and 270 (±5) degrees regions
             is_special_angle = ((theta_deg >= 80) & (theta_deg <= 100)) | ((theta_deg >= 260) & (theta_deg <= 280))
 
-            # Apply a different threshold for these special angles (e.g., 1.5x the normal threshold)
-            special_angle_factor = 0.9  # Adjust this factor as needed
-            special_angle_scaling = 2.5
             thresh[is_special_angle] = mad_special_scale * mad + 1e-12
             inl = res_abs < thresh
             if inl.sum() < min_samples:
@@ -237,6 +258,6 @@ class Anora:
         try:
             p_fin, cov = curve_fit(self._angular_distribution, theta[best_inliers], counts[best_inliers],
                                    p0=best_par, bounds=bounds, method='trf', sigma=sigma[best_inliers], absolute_sigma=False)
-        except RuntimeError:
+        except (RuntimeError, ValueError):
             return self._fit_robust(theta, counts, sigma)
         return p_fin, cov, best_inliers
